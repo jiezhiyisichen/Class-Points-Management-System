@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>♟️ 中国象棋 · 像素创梦</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <!-- 引入中国象棋引擎 -->
+    <script src="{{ url_for('static', filename='js/xiangqi.js') }}"></script>
+    <style>
+        body { background: #f3f4f6; }
+        .board-wrapper {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        #chessCanvas {
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            border-radius: 12px;
+            background: #f0d9b5;
+            cursor: pointer;
+        }
+        .info-panel {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        #toastContainer {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 8px;
+            pointer-events: none;
+        }
+        .toast {
+            background: #1e293b;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            pointer-events: auto;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        #loadingOverlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255,255,255,0.95);
+            z-index: 100000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.4s;
+        }
+        .progress-container {
+            width: 260px;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 999px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #dc2626, #b91c1c);
+            border-radius: 999px;
+            transition: width 0.1s;
+        }
+        .loading-text {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1e293b;
+            letter-spacing: 2px;
+        }
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 400px;
+            width: 90%;
+        }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+
+<!-- 加载遮罩 -->
+<div id="loadingOverlay">
+    <div class="progress-container">
+        <div id="progressBar" class="progress-bar" style="width:0%"></div>
+    </div>
+    <div class="loading-text">
+        Loading<span class="loading-dots"></span>
+    </div>
+</div>
+
+<div id="toastContainer"></div>
+
+<!-- 主内容 -->
+<div id="mainContent" style="display:none;">
+    <div class="container mx-auto px-4 py-4">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800 flex items-center gap-2">
+                <i class="fa fa-chess-queen text-red-600"></i>
+                中国象棋 · 人机对战
+            </h1>
+            <div class="flex items-center gap-4">
+                <span id="displayUsername" class="text-gray-700 font-medium"></span>
+                <a href="/play/" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg text-sm transition">
+                    <i class="fa fa-arrow-left mr-1"></i>返回大厅
+                </a>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-xl shadow p-4">
+                    <div class="board-wrapper">
+                        <canvas id="chessCanvas" width="540" height="600"></canvas>
+                    </div>
+                    <div class="flex justify-between items-center mt-4">
+                        <button id="restartBtn" class="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2 rounded-lg shadow" disabled>
+                            <i class="fa fa-refresh mr-1"></i>新一局
+                        </button>
+                        <div id="gameStatusDisplay" class="text-lg font-semibold text-gray-700">等待开始</div>
+                        <button id="surrenderBtn" class="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-lg shadow" disabled>
+                            <i class="fa fa-flag mr-1"></i>认输
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="info-panel">
+                <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+                    <i class="fa fa-gamepad text-red-500"></i>对局信息
+                </h3>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-600 mb-1">获胜学生学号</label>
+                    <input type="text" id="studentIdInput" placeholder="输入学号" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-400 outline-none">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-600 mb-1">AI 难度</label>
+                    <select id="difficultySelect" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-400 outline-none">
+                        <option value="easy">简单 (+0.3级)</option>
+                        <option value="normal" selected>普通 (+0.4级)</option>
+                        <option value="hard">困难 (+0.5级)</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-600 mb-1">选择阵营</label>
+                    <select id="sideSelect" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-400 outline-none">
+                        <option value="red" selected>红方（先手）</option>
+                        <option value="black">黑方（后手）</option>
+                    </select>
+                </div>
+                <button id="startGameBtn" class="w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-lg font-semibold mb-4 shadow">
+                    <i class="fa fa-play mr-2"></i>开始对局
+                </button>
+                <div class="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <div class="flex justify-between">
+                        <span class="text-gray-600"><i class="fa fa-users mr-1"></i>当前回合</span>
+                        <span id="turnDisplay" class="font-bold text-gray-800">—</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-600"><i class="fa fa-trophy mr-1"></i>本周胜利</span>
+                        <span id="weekWinCountDisplay" class="font-bold text-red-600">0 / 4</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-600"><i class="fa fa-level-up mr-1"></i>获胜奖励</span>
+                        <span id="rewardText" class="font-bold text-green-600">+0.4 级经验</span>
+                    </div>
+                </div>
+                <div class="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+                    <i class="fa fa-info-circle mr-1"></i>
+                    战胜AI即可获得经验，每周限4次。
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function(){
+    "use strict";
+
+    // 确保 Xiangqi 库已加载
+    const XiangqiLib = window.Xiangqi;
+    if (typeof XiangqiLib !== 'function') {
+        alert('中国象棋引擎加载失败，请刷新页面');
+        throw new Error('Xiangqi library not loaded');
+    }
+
+    // ---------- 全局变量 ----------
+    let currentUser = null;
+    let students = [];
+    let currentStudentId = '';
+    let weekWinCount = 0;
+    const MAX_WEEK_WINS = 4;
+    let game = null;
+    let gameActive = false;
+    let gameOver = false;
+    let playerColor = 'r';      // 'r' 红方, 'b' 黑方
+    let aiColor = 'b';
+    let currentTurn = null;     // 'player' 或 'ai'
+    let selectedSquare = null;  // ICCS 坐标，如 'e2'
+    let possibleMoves = [];     // 当前选中棋子的合法走法
+
+    // Canvas
+    const canvas = document.getElementById('chessCanvas');
+    const ctx = canvas.getContext('2d');
+    const BOARD_SIZE = 9;       // 列数 a-i
+    const BOARD_ROWS = 10;      // 行数 0-9
+    let cellSize = 60;          // 动态计算
+
+    // DOM 元素
+    const gameStatusDisplay = document.getElementById('gameStatusDisplay');
+    const turnDisplay = document.getElementById('turnDisplay');
+    const weekWinCountDisplay = document.getElementById('weekWinCountDisplay');
+    const studentIdInput = document.getElementById('studentIdInput');
+    const startGameBtn = document.getElementById('startGameBtn');
+    const restartBtn = document.getElementById('restartBtn');
+    const surrenderBtn = document.getElementById('surrenderBtn');
+    const difficultySelect = document.getElementById('difficultySelect');
+    const sideSelect = document.getElementById('sideSelect');
+    const rewardText = document.getElementById('rewardText');
+
+    // 加载动画
+    const overlay = document.getElementById('loadingOverlay');
+    const progressBar = document.getElementById('progressBar');
+    const mainContent = document.getElementById('mainContent');
+
+    // ---------- 加载初始化 ----------
+    function initLoading() {
+        let width = 0;
+        const startTime = Date.now();
+        const minDuration = 3000;
+        const interval = setInterval(() => {
+            width += Math.floor(Math.random() * 15) + 5;
+            if (width >= 100) {
+                width = 100;
+                progressBar.style.width = '100%';
+                clearInterval(interval);
+                const elapsed = Date.now() - startTime;
+                setTimeout(() => {
+                    overlay.style.opacity = '0';
+                    setTimeout(() => {
+                        overlay.style.display = 'none';
+                        mainContent.style.display = 'block';
+                        initApp();
+                    }, 400);
+                }, Math.max(0, minDuration - elapsed));
+            } else {
+                progressBar.style.width = width + '%';
+            }
+        }, 100);
+    }
+
+    async function initApp() {
+        // 维护状态检查
+        try {
+            const res = await fetch('/api/play/status');
+            const data = await res.json();
+            if (!data.enabled) {
+                document.body.innerHTML = `
+                    <div class="flex items-center justify-center min-h-screen">
+                        <div class="text-center p-8 bg-white rounded-xl shadow-lg">
+                            <i class="fa fa-tools text-6xl text-gray-400 mb-4"></i>
+                            <h2 class="text-2xl font-bold text-gray-700">游戏维护中</h2>
+                            <p class="text-gray-500 mt-2">请稍后再来体验</p>
+                            <a href="/play/" class="inline-block mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg">返回大厅</a>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+        } catch (e) {
+            console.error('检查维护状态失败', e);
+        }
+
+        const storedUser = sessionStorage.getItem('playCurrentUser');
+        if (!storedUser) { window.location.href = '/'; return; }
+        currentUser = JSON.parse(storedUser);
+        document.getElementById('displayUsername').innerText = `👤 ${currentUser.username}`;
+
+        await loadStudents();
+
+        // 初始化棋盘
+        game = new XiangqiLib();
+        cellSize = canvas.width / BOARD_SIZE;
+        drawBoard();
+
+        // 事件绑定
+        studentIdInput.addEventListener('input', async () => {
+            const id = studentIdInput.value.trim();
+            if (id) {
+                weekWinCount = await loadWeekWinCount(id);
+                updateWeekWinDisplay();
+            }
+        });
+        difficultySelect.addEventListener('change', (e) => {
+            const val = e.target.value;
+            const expMap = { easy: '0.3', normal: '0.4', hard: '0.5' };
+            rewardText.innerText = `+${expMap[val]} 级经验`;
+        });
+        startGameBtn.addEventListener('click', onStartGame);
+        restartBtn.addEventListener('click', () => {
+            if (gameActive && !gameOver && !confirm('对局尚未结束，确定重新开始？')) return;
+            startNewGame();
+        });
+        surrenderBtn.addEventListener('click', surrender);
+        canvas.addEventListener('click', handleCanvasClick);
+    }
+
+    async function loadStudents() {
+        try {
+            const res = await fetch(`/api/students?username=${currentUser.username}`);
+            if (res.ok) students = await res.json();
+        } catch(e) {}
+    }
+
+    async function loadWeekWinCount(studentId) {
+        try {
+            const res = await fetch(`/api/play/weekly-wins?username=${currentUser.username}&student_id=${studentId}`);
+            const data = await res.json();
+            return data.success ? data.weekly_wins : 0;
+        } catch { return 0; }
+    }
+
+    function updateWeekWinDisplay() {
+        weekWinCountDisplay.innerText = `${weekWinCount} / ${MAX_WEEK_WINS}`;
+    }
+
+    // ---------- 坐标转换 ----------
+    function algebraicToRowCol(alg) {
+        const col = alg.charCodeAt(0) - 'a'.charCodeAt(0);
+        const row = 9 - parseInt(alg[1]); // ICCS: '0' 为红方底线，我们绘制时 row=0 对应棋盘顶部（黑方）
+        return { row, col };
+    }
+
+    function rowColToAlgebraic(row, col) {
+        const file = String.fromCharCode('a'.charCodeAt(0) + col);
+        const rank = 9 - row;
+        return file + rank;
+    }
+
+    // ---------- 棋盘绘制 ----------
+    function drawBoard() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        cellSize = canvas.width / BOARD_SIZE;
+
+        // 绘制网格
+        ctx.strokeStyle = '#5a3e1b';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < BOARD_SIZE; i++) {
+            ctx.beginPath();
+            ctx.moveTo(i * cellSize + cellSize/2, cellSize/2);
+            ctx.lineTo(i * cellSize + cellSize/2, canvas.height - cellSize/2);
+            ctx.stroke();
+        }
+        for (let i = 0; i < BOARD_ROWS; i++) {
+            ctx.beginPath();
+            ctx.moveTo(cellSize/2, i * cellSize + cellSize/2);
+            ctx.lineTo(canvas.width - cellSize/2, i * cellSize + cellSize/2);
+            ctx.stroke();
+        }
+
+        // 楚河汉界
+        ctx.font = `bold ${cellSize*0.5}px "KaiTi", "楷体", serif`;
+        ctx.fillStyle = '#8b5a2b';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('楚 河', canvas.width/2, cellSize*4.5);
+        ctx.fillText('汉 界', canvas.width/2, cellSize*5.5);
+
+        // 炮/兵标记
+        drawMarkers();
+
+        // 绘制棋子
+        const board = game.board();
+        for (let r = 0; r < BOARD_ROWS; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                const piece = board[r][c];
+                if (piece) {
+                    drawPiece(r, c, piece);
+                }
+            }
+        }
+
+        // 选中高亮
+        if (selectedSquare) {
+            const { row, col } = algebraicToRowCol(selectedSquare);
+            ctx.beginPath();
+            ctx.arc(col * cellSize + cellSize/2, row * cellSize + cellSize/2, cellSize*0.3, 0, 2*Math.PI);
+            ctx.fillStyle = 'rgba(255,215,0,0.4)';
+            ctx.fill();
+            possibleMoves.forEach(move => {
+                const to = move.to;
+                const { row: tr, col: tc } = algebraicToRowCol(to);
+                ctx.beginPath();
+                ctx.arc(tc * cellSize + cellSize/2, tr * cellSize + cellSize/2, cellSize*0.2, 0, 2*Math.PI);
+                ctx.fillStyle = 'rgba(50,205,50,0.6)';
+                ctx.fill();
+            });
+        }
+
+        updateTurnDisplay();
+    }
+
+    function drawMarkers() {
+        const positions = [[2,1],[2,7],[7,1],[7,7]]; // 炮位
+        ctx.font = `${cellSize*0.3}px "KaiTi"`;
+        ctx.fillStyle = '#8b5a2b';
+        positions.forEach(([r,c]) => {
+            ctx.fillText('炮', c*cellSize+cellSize*0.7, r*cellSize+cellSize*0.7);
+        });
+        const soldierPos = [[3,0],[3,2],[3,4],[3,6],[3,8],[6,0],[6,2],[6,4],[6,6],[6,8]];
+        soldierPos.forEach(([r,c]) => {
+            ctx.fillText('兵', c*cellSize+cellSize*0.7, r*cellSize+cellSize*0.7);
+        });
+    }
+
+    function drawPiece(row, col, piece) {
+        const x = col * cellSize + cellSize/2;
+        const y = row * cellSize + cellSize/2;
+        const radius = cellSize * 0.4;
+
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, 2*Math.PI);
+        ctx.fillStyle = piece.color === 'r' ? '#f0d9b5' : '#b58863';
+        ctx.fill();
+        ctx.strokeStyle = '#3a2a1e';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.font = `bold ${cellSize*0.45}px "KaiTi", "楷体", serif`;
+        ctx.fillStyle = piece.color === 'r' ? '#b22222' : '#1a1a1a';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        let text = '';
+        switch(piece.type) {
+            case 'k': text = (piece.color === 'r') ? '帅' : '将'; break;
+            case 'a': text = '士'; break;
+            case 'e': text = (piece.color === 'r') ? '相' : '象'; break;
+            case 'h': text = '马'; break;
+            case 'r': text = '车'; break;
+            case 'c': text = '炮'; break;
+            case 'p': text = (piece.color === 'r') ? '兵' : '卒'; break;
+        }
+        ctx.fillText(text, x, y);
+    }
+
+    function updateTurnDisplay() {
+        if (!gameActive) return;
+        const turn = game.turn();
+        turnDisplay.innerText = turn === 'r' ? '红方走棋' : '黑方走棋';
+    }
+
+    // ---------- 游戏逻辑 ----------
+    function startNewGame() {
+        game.reset();
+        gameActive = true;
+        gameOver = false;
+        selectedSquare = null;
+        possibleMoves = [];
+
+        const side = sideSelect.value;
+        playerColor = side === 'red' ? 'r' : 'b';
+        aiColor = playerColor === 'r' ? 'b' : 'r';
+        currentTurn = playerColor === 'r' ? 'player' : 'ai';
+
+        drawBoard();
+        gameStatusDisplay.innerText = currentTurn === 'player' ? '你的回合' : 'AI 思考中...';
+        startGameBtn.disabled = true;
+        restartBtn.disabled = surrenderBtn.disabled = false;
+
+        if (currentTurn === 'ai') setTimeout(() => aiMove(), 300);
+    }
+
+    async function onStartGame() {
+        const studentId = studentIdInput.value.trim();
+        if (!studentId) return showToast('请输入学号', 'warning');
+        const student = students.find(s => s.id === studentId);
+        if (!student) return showToast('学号不存在', 'error');
+        weekWinCount = await loadWeekWinCount(studentId);
+        updateWeekWinDisplay();
+        const confirmed = await showConfirmModal(student, weekWinCount);
+        if (!confirmed) return;
+        currentStudentId = studentId;
+        startNewGame();
+    }
+
+    function handleCanvasClick(e) {
+        if (!gameActive || currentTurn !== 'player' || gameOver) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const canvasX = (e.clientX - rect.left) * scaleX;
+        const canvasY = (e.clientY - rect.top) * scaleX;
+        const col = Math.floor(canvasX / cellSize);
+        const row = Math.floor(canvasY / cellSize);
+        if (row < 0 || row >= BOARD_ROWS || col < 0 || col >= BOARD_SIZE) return;
+
+        const clickedAlgebraic = rowColToAlgebraic(row, col);
+        const piece = game.get(clickedAlgebraic);
+
+        if (selectedSquare) {
+            const move = possibleMoves.find(m => m.to === clickedAlgebraic);
+            if (move) {
+                game.move({ from: selectedSquare, to: clickedAlgebraic });
+                selectedSquare = null;
+                possibleMoves = [];
+                drawBoard();
+
+                if (game.game_over()) {
+                    handleGameEnd();
+                    return;
+                }
+
+                currentTurn = 'ai';
+                gameStatusDisplay.innerText = 'AI 思考中...';
+                setTimeout(() => aiMove(), 300);
+            } else {
+                if (piece && piece.color === playerColor) {
+                    selectedSquare = clickedAlgebraic;
+                    possibleMoves = game.moves({ square: selectedSquare, verbose: true });
+                } else {
+                    selectedSquare = null;
+                    possibleMoves = [];
+                }
+                drawBoard();
+            }
+        } else {
+            if (piece && piece.color === playerColor) {
+                selectedSquare = clickedAlgebraic;
+                possibleMoves = game.moves({ square: selectedSquare, verbose: true });
+                drawBoard();
+            }
+        }
+    }
+
+    function aiMove() {
+        if (!gameActive || currentTurn !== 'ai' || gameOver) return;
+
+        const difficulty = difficultySelect.value;
+        const moves = game.moves({ verbose: true });
+        if (moves.length === 0) {
+            handleGameEnd();
+            return;
+        }
+
+        let bestMove = null;
+        if (difficulty === 'easy') {
+            bestMove = moves[Math.floor(Math.random() * moves.length)];
+        } else {
+            bestMove = getBestMove(moves);
+        }
+
+        game.move({ from: bestMove.from, to: bestMove.to });
+        drawBoard();
+        selectedSquare = null;
+        possibleMoves = [];
+
+        if (game.game_over()) {
+            handleGameEnd();
+            return;
+        }
+
+        currentTurn = 'player';
+        gameStatusDisplay.innerText = '你的回合';
+    }
+
+    // AI 评估函数
+    function getBestMove(moves) {
+        const pieceValues = { k: 10000, r: 500, h: 300, c: 300, e: 200, a: 200, p: 100 };
+        let bestScore = -Infinity;
+        let bestMove = moves[0];
+
+        for (let move of moves) {
+            game.move({ from: move.from, to: move.to });
+            let score = evaluateBoard(pieceValues);
+            game.undo();
+            // 黑方 AI 取负值（因为评估是从红方视角）
+            if (aiColor === 'b') score = -score;
+            // 困难模式增加随机位置激励（模拟浅层搜索）
+            if (difficultySelect.value === 'hard') {
+                const toRow = 9 - parseInt(move.to[1]);
+                score += (aiColor === 'r') ? (9 - toRow) * 2 : toRow * 2;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestMove = move;
+            }
+        }
+        return bestMove;
+    }
+
+    function evaluateBoard(pieceValues) {
+        let score = 0;
+        const board = game.board();
+        for (let r = 0; r < BOARD_ROWS; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                const piece = board[r][c];
+                if (piece) {
+                    let val = pieceValues[piece.type] || 0;
+                    score += (piece.color === 'r') ? val : -val;
+                }
+            }
+        }
+        return score;
+    }
+
+    function handleGameEnd() {
+        gameActive = false;
+        gameOver = true;
+        if (game.in_checkmate()) {
+            const loser = game.turn(); // 谁被将死谁就输了
+            const playerWon = (playerColor === 'r' && loser === 'b') || (playerColor === 'b' && loser === 'r');
+            if (playerWon) {
+                gameStatusDisplay.innerText = '🎉 你赢了！';
+                showToast('恭喜你战胜了AI！', 'success');
+                awardExperience();
+            } else {
+                gameStatusDisplay.innerText = '😢 AI赢了';
+                showToast('AI获胜', 'error');
+            }
+        } else {
+            gameStatusDisplay.innerText = '🤝 平局';
+            showToast('平局', 'info');
+        }
+        startGameBtn.disabled = false;
+    }
+
+    async function awardExperience() {
+        if (!currentStudentId) return;
+        const difficulty = difficultySelect.value;
+        try {
+            const res = await fetch('/api/play/win', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({
+				    username: currentUser.username,
+				    student_id: currentStudentId,
+				    difficulty: difficulty,
+				    game_type: 'gomoku'  // 新增
+				})
+            });
+            const data = await res.json();
+            if (data.success) {
+                weekWinCount = data.weekly_wins;
+                updateWeekWinDisplay();
+                const expMap = { easy: '0.3', normal: '0.4', hard: '0.5' };
+                showToast(`经验 +${expMap[difficulty]} 级！当前等级 Lv ${data.new_level}，本周剩余 ${MAX_WEEK_WINS - weekWinCount} 次`, 'success');
+                await loadStudents();
+            } else {
+                showToast(data.msg, 'error');
+            }
+        } catch(e) { showToast('网络错误', 'error'); }
+    }
+
+    function surrender() {
+        if (!gameActive || gameOver) return;
+        gameActive = false; gameOver = true;
+        gameStatusDisplay.innerText = '你认输了';
+        showToast('你认输了', 'info');
+        startGameBtn.disabled = false;
+    }
+
+    function showToast(msg, type='info') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.style.backgroundColor = type==='success'?'#10b981': type==='error'?'#ef4444': type==='warning'?'#f59e0b':'#1e293b';
+        toast.innerText = msg;
+        container.appendChild(toast);
+        setTimeout(()=>toast.remove(), 3000);
+    }
+
+    function showConfirmModal(student, wins) {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.innerHTML = `
+                <div class="modal-content">
+                    <h3 class="text-lg font-bold mb-3">确认开始对局</h3>
+                    <div class="space-y-2 text-sm">
+                        <p><span class="text-gray-600">学号：</span><strong>${student.id}</strong></p>
+                        <p><span class="text-gray-600">姓名：</span><strong>${student.name}</strong></p>
+                        <p><span class="text-gray-600">当前等级：</span><span class="font-bold text-red-600">Lv ${student.level}</span></p>
+                        <p><span class="text-gray-600">本周已胜利：</span><span class="font-bold ${wins>=4?'text-red-500':'text-green-600'}">${wins} / 4</span></p>
+                    </div>
+                    ${wins>=4?'<p class="text-red-500 text-sm mt-3">本周奖励次数已用完，胜利后无法获得经验。</p>':''}
+                    <div class="flex justify-end gap-2 mt-5">
+                        <button class="cancel-btn px-4 py-2 bg-gray-200 rounded-lg">取消</button>
+                        <button class="confirm-btn px-4 py-2 bg-red-600 text-white rounded-lg">确认开始</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            overlay.querySelector('.cancel-btn').onclick = () => { overlay.remove(); resolve(false); };
+            overlay.querySelector('.confirm-btn').onclick = () => { overlay.remove(); resolve(true); };
+            overlay.onclick = (e) => { if(e.target===overlay) { overlay.remove(); resolve(false); } };
+        });
+    }
+
+    initLoading();
+})();
+</script>
+</body>
+</html>

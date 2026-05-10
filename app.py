@@ -1,0 +1,875 @@
+from flask import Flask, render_template, request, jsonify
+import json
+import os
+from datetime import datetime
+from flask_cors import CORS  # 导入 CORS
+
+# 创建 Flask 应用实例
+app = Flask(__name__)
+
+# 启用 CORS，允许携带 Cookie（如果需要）
+CORS(app, supports_credentials=True)
+
+# 配置
+DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
+USERS_FILE = os.path.join(DATA_DIR, 'users.json')
+DEFAULT_PASSWORD = "54321"
+
+# 初始化数据目录
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# 加载用户数据
+def load_users():
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+# 保存用户数据
+def save_users(users):
+    with open(USERS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(users, f, ensure_ascii=False, indent=4)
+
+# 获取用户的学生数据文件路径
+def get_user_data_file(username):
+    return os.path.join(DATA_DIR, f'{username}_students.json')
+# 获取用户注释文件路径
+def get_user_notes_file(username):
+    return os.path.join(DATA_DIR, f'{username}_notes.json')
+
+# 加载注释
+def load_notes(username):
+    notes_file = get_user_notes_file(username)
+    if os.path.exists(notes_file):
+        try:
+            with open(notes_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+# 保存注释
+def save_notes(username, notes):
+    notes_file = get_user_notes_file(username)
+    with open(notes_file, 'w', encoding='utf-8') as f:
+        json.dump(notes, f, ensure_ascii=False, indent=4)
+# 加载指定用户的学生数据
+def load_students(username=None):
+    if username:
+        data_file = get_user_data_file(username)
+    else:
+        data_file = os.path.join(DATA_DIR, 'students.json')
+    if os.path.exists(data_file):
+        try:
+            with open(data_file, 'r', encoding='utf-8') as f:
+                students = json.load(f)
+                dirty = False
+                for s in students:
+                    # 原有字段补全
+                    if 'accrued_exp' not in s:
+                        s['accrued_exp'] = s.get('positive_score', 0)
+                        dirty = True
+                    # 新增：周胜利数据字段补全
+                    if 'weekly_wins' not in s:
+                        s['weekly_wins'] = 0
+                        dirty = True
+                    if 'last_win_reset' not in s:
+                        s['last_win_reset'] = datetime.now().strftime('%Y-%m-%d')
+                        dirty = True
+                    # 根据 accrued_exp 计算等级（每满10分升一级，1级为0~9分）
+                    new_level = max(1, s['accrued_exp'] // 10 + 1)
+                    if s.get('level') != new_level:
+                        s['level'] = new_level
+                        dirty = True
+                    # 确保总分正确
+                    s['total_score'] = s['positive_score'] - s['negative_score']
+                if dirty and username:
+                    save_students(students, username)
+                return students
+        except json.JSONDecodeError:
+            return []
+    return []
+# 保存指定用户的学生数据
+def save_students(students, username=None):
+    if username:
+        data_file = get_user_data_file(username)
+    else:
+        data_file = os.path.join(DATA_DIR, 'students.json')
+    with open(data_file, 'w', encoding='utf-8') as f:
+        json.dump(students, f, ensure_ascii=False, indent=4)
+# ---------- 玩法相关数据文件 ----------
+def get_play_stats_file(username):
+    return os.path.join(DATA_DIR, f'{username}_play_stats.json')
+
+def load_play_stats(username):
+    file = get_play_stats_file(username)
+    if os.path.exists(file):
+        try:
+            with open(file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+    # 默认数据
+    return {'weekly_wins': 0, 'last_reset': datetime.now().strftime('%Y-%m-%d')}
+
+def save_play_stats(username, data):
+    file = get_play_stats_file(username)
+    with open(file, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+def reset_weekly_if_needed(username):
+    stats = load_play_stats(username)
+    last_reset_str = stats.get('last_reset', '2000-01-01')
+    try:
+        last_reset = datetime.strptime(last_reset_str, '%Y-%m-%d').date()
+    except:
+        last_reset = datetime.now().date()
+    today = datetime.now().date()
+    # 如果今天 >= 上次重置日 + 7天（简单按周计算）或跨周
+    if (today - last_reset).days >= 7 or today.weekday() < last_reset.weekday():
+        stats['weekly_wins'] = 0
+        stats['last_reset'] = today.strftime('%Y-%m-%d')
+        save_play_stats(username, stats)
+    return stats
+def reset_student_weekly_if_needed(student):
+    """检查并重置单个学生的周胜利计数（如果需要）"""
+    last_reset_str = student.get('last_win_reset', '2000-01-01')
+    try:
+        last_reset = datetime.strptime(last_reset_str, '%Y-%m-%d').date()
+    except:
+        last_reset = datetime.now().date()
+    today = datetime.now().date()
+    
+    # 如果超过7天或跨周（简单处理：日期差≥7或星期几变小）
+    if (today - last_reset).days >= 7 or today.weekday() < last_reset.weekday():
+        student['weekly_wins'] = 0
+        student['last_win_reset'] = today.strftime('%Y-%m-%d')
+        return True  # 表示发生了重置
+    return False
+# 在 app.run() 之前添加
+def init_play_files():
+    # 创建 play_config.txt（如果不存在）
+    config_path = os.path.join(os.path.dirname(__file__), 'play_config.txt')
+    if not os.path.exists(config_path):
+        with open(config_path, 'w', encoding='utf-8') as f:
+            f.write('play=true')
+
+    # 确保 data 目录存在
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+init_play_files()
+
+# 主页
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+# 获取所有学生数据（按不同维度排序）
+@app.route('/api/students', methods=['GET'])
+def get_students():
+    sort_type = request.args.get('sort', 'all')
+    username = request.args.get('username')
+    students = load_students(username)
+    if sort_type == 'total':
+        sorted_students = sorted(students, key=lambda x: x['total_score'], reverse=True)
+    elif sort_type == 'positive':
+        sorted_students = sorted(students, key=lambda x: x['positive_score'], reverse=True)
+    elif sort_type == 'negative':
+        sorted_students = sorted(students, key=lambda x: x['negative_score'], reverse=True)
+    else:
+        sorted_students = sorted(students, key=lambda x: x['id'])
+    return jsonify(sorted_students)
+
+# 添加学生
+@app.route('/api/students', methods=['POST'])
+def add_student():
+    data = request.json
+    username = data.get('username')
+    students = load_students(username)
+    for s in students:
+        if s['id'] == data['id']:
+            return jsonify({'success': False, 'msg': '学号已存在'})
+    positive = int(data['positive_score'])
+    negative = int(data['negative_score'])
+    total = positive - negative
+    accrued_exp = positive   # 累计经验初始等于初始正分
+    level = max(1, accrued_exp // 10 + 1)
+    student = {
+        'id': data['id'],
+        'name': data['name'],
+        'positive_score': positive,
+        'negative_score': negative,
+        'total_score': total,
+        'level': level,
+        'accrued_exp': accrued_exp,
+        'history': []
+    }
+    students.append(student)
+    save_students(students, username)
+    return jsonify({'success': True, 'msg': '添加成功'})
+
+# 删除学生
+@app.route('/api/students/<student_id>', methods=['DELETE'])
+def delete_student(student_id):
+    username = request.args.get('username')
+    students = load_students(username)
+    for i, s in enumerate(students):
+        if s['id'] == student_id:
+            del students[i]
+            save_students(students, username)
+            return jsonify({'success': True, 'msg': '删除成功'})
+    return jsonify({'success': False, 'msg': '学号不存在'})
+
+# 查询学生
+@app.route('/api/students/<student_id>', methods=['GET'])
+def search_student(student_id):
+    username = request.args.get('username')
+    students = load_students(username)
+    for s in students:
+        if s['id'] == student_id:
+            return jsonify({'success': True, 'data': s})
+    return jsonify({'success': False, 'msg': '学号不存在'})
+
+# 用户注册
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    if not username or not password:
+        return jsonify({'success': False, 'msg': '用户名和密码不能为空'})
+    users = load_users()
+    if username in users:
+        return jsonify({'success': False, 'msg': '用户名已存在'})
+    users[username] = {
+        'password': password,
+        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'role': 'user'
+    }
+    save_users(users)
+    save_students([], username)
+    save_notes(username, {})   # 初始化空注释
+    return jsonify({'success': True, 'msg': '注册成功'})
+
+# 用户登录
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    users = load_users()
+    if username not in users or users[username]['password'] not in password:
+        return jsonify({'success': False, 'msg': '用户名或密码错误'})
+    return jsonify({
+        'success': True,
+        'msg': '登录成功',
+        'data': {
+            'username': username,
+            'created_at': users[username]['created_at'],
+            'role': users[username].get('role', 'user')
+        }
+    })
+
+@app.route('/api/verify-password', methods=['POST'])
+def verify_password():
+    data = request.json
+    username = data.get('username')
+    pwd = data.get('password')
+    if not username or not pwd:
+        return jsonify({'success': False, 'msg': '缺少参数'}), 400
+    users = load_users()
+    user = users.get(username)
+    if not user:
+        return jsonify({'success': False, 'msg': '用户不存在'}), 404
+    # 防偷窥核心：真实密码是否包含在输入串中
+    if user['password'] not in pwd:
+        return jsonify({'success': False, 'msg': '密码错误'})
+    return jsonify({'success': True})
+
+# 调整积分
+@app.route('/api/students/<student_id>/adjust-score', methods=['POST'])
+def adjust_score(student_id):
+    data = request.json
+    operation = data.get('operation')
+    positive_adjust = int(data.get('positive_adjust', 0))
+    negative_adjust = int(data.get('negative_adjust', 0))
+    username = data.get('username')
+    students = load_students(username)
+    for s in students:
+        if s['id'] == student_id:
+            if operation == 'add':
+                s['positive_score'] += positive_adjust
+                s['negative_score'] += negative_adjust
+                # 累计经验只增加正分部分
+                if positive_adjust > 0:
+                    s['accrued_exp'] = s.get('accrued_exp', s['positive_score']) + positive_adjust
+                # 更新等级
+                s['level'] = max(1, s['accrued_exp'] // 10 + 1)
+                op_type = '充值'
+            else:  # reduce
+                if s['total_score'] < positive_adjust:
+                    return jsonify({'success': False, 'msg': '总分不足，扣除失败'})
+                s['positive_score'] -= positive_adjust
+                # 等级和累计经验不变
+                op_type = '扣除'
+            # 更新总分
+            s['total_score'] = s['positive_score'] - s['negative_score']
+            s['history'].append({
+                'type': op_type,
+                'positive_score': positive_adjust if operation == 'add' else -positive_adjust,
+                'negative_score': negative_adjust if operation == 'add' else 0,
+                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            save_students(students, username)
+            return jsonify({'success': True, 'msg': f'{op_type}成功'})
+    return jsonify({'success': False, 'msg': '学号不存在'})
+
+# 获取统计数据
+@app.route('/api/statistics', methods=['GET'])
+def get_statistics():
+    username = request.args.get('username')
+    students = load_students(username)
+    total = len(students)
+    pos = len([s for s in students if s['total_score'] > 0])
+    neg = len([s for s in students if s['total_score'] < 0])
+    avg = sum(s['total_score'] for s in students) / total if total > 0 else 0
+    return jsonify({
+        'total_students': total,
+        'positive_students': pos,
+        'negative_students': neg,
+        'average_score': round(avg, 2)
+    })
+
+# 获取班级信息
+@app.route('/api/class-info', methods=['GET'])
+def get_class_info():
+    username = request.args.get('username')
+    if not username:
+        return jsonify({'success': False, 'msg': '缺少用户名'}), 400
+    class_file = os.path.join(DATA_DIR, f'{username}_class.json')
+    if os.path.exists(class_file):
+        try:
+            with open(class_file, 'r', encoding='utf-8') as f:
+                info = json.load(f)
+            # 确保返回的字段中包含 announcement（兼容旧数据）
+            if 'announcement' not in info:
+                info['announcement'] = ''
+            return jsonify(info)
+        except:
+            pass
+    # 默认班级信息
+    default_info = {
+        'className': '🏫 银河一班',
+        'username': username,
+        'announcement': ''
+    }
+    return jsonify(default_info)
+
+# 更新班级信息
+@app.route('/api/class-info', methods=['POST'])
+def update_class_info():
+    data = request.json
+    username = data.get('username')
+    if not username:
+        return jsonify({'success': False, 'msg': '缺少用户名'}), 400
+    info = {
+        'className': data.get('className', '🏫 银河一班'),
+        'username': username,
+        'announcement': data.get('announcement', '')  # 新增公告字段
+    }
+    class_file = os.path.join(DATA_DIR, f'{username}_class.json')
+    with open(class_file, 'w', encoding='utf-8') as f:
+        json.dump(info, f, ensure_ascii=False, indent=4)
+    return jsonify({'success': True, 'msg': '班级信息已更新'})
+
+# ========== 管理员 API ==========
+@app.route('/api/admin/users', methods=['GET'])
+def admin_get_users():
+    admin_username = request.args.get('adminUsername')
+    if not admin_username:
+        return jsonify({'success': False, 'msg': '缺少管理员用户名'}), 400
+    users = load_users()
+    if admin_username not in users or users[admin_username].get('role') != 'admin':
+        return jsonify({'success': False, 'msg': '无权限'}), 403
+    user_list = []
+    for u, info in users.items():
+        user_list.append({
+            'username': u,
+            'created_at': info.get('created_at', ''),
+            'role': info.get('role', 'user'),
+            'password_length': len(info['password'])
+        })
+    return jsonify({'success': True, 'data': user_list})
+@app.route('/api/admin/make-admin', methods=['POST'])
+def make_admin():
+    data = request.json
+    admin_username = data.get('adminUsername')  # 当前操作的管理员用户名
+    target_user = data.get('targetUser')        # 要提升的用户名
+    if not admin_username or not target_user:
+        return jsonify({'success': False, 'msg': '缺少参数'}), 400
+    users = load_users()
+    # 只有 ysc 可以执行此操作
+    if admin_username != 'ysc' or users.get('ysc', {}).get('role') != 'admin':
+        return jsonify({'success': False, 'msg': '只有超级管理员可以执行此操作'}), 403
+    if target_user not in users:
+        return jsonify({'success': False, 'msg': '用户不存在'}), 404
+    users[target_user]['role'] = 'admin'
+    save_users(users)
+    return jsonify({'success': True, 'msg': f'已将 {target_user} 设为管理员'})
+@app.route('/api/change-password', methods=['POST'])
+def change_password():
+    data = request.json
+    username = data.get('username')
+    old_password = data.get('old_password')
+    new_password = data.get('new_password')
+    users = load_users()
+    if username not in users or users[username]['password'] != old_password:
+        return jsonify({'success': False, 'msg': '原密码错误'})
+    users[username]['password'] = new_password
+    save_users(users)
+    return jsonify({'success': True, 'msg': '密码修改成功'})
+
+@app.route('/api/admin/users/<username>', methods=['DELETE'])
+def admin_delete_user(username):
+    admin_username = request.args.get('adminUsername')
+    if not admin_username:
+        return jsonify({'success': False, 'msg': '缺少管理员用户名'}), 400
+    users = load_users()
+    if admin_username not in users or users[admin_username].get('role') != 'admin':
+        return jsonify({'success': False, 'msg': '无权限'}), 403
+        # 新增：禁止删除 ysc
+    if username == 'ysc':
+        return jsonify({'success': False, 'msg': '不能删除超级管理员 ysc'}), 403
+    if username not in users:
+        return jsonify({'success': False, 'msg': '用户不存在'}), 404
+    # 删除相关文件
+    for f in [f'{username}_students.json', f'{username}_class.json']:
+        try:
+            os.remove(os.path.join(DATA_DIR, f))
+        except FileNotFoundError:
+            pass
+    del users[username]
+    save_users(users)
+    return jsonify({'success': True, 'msg': '用户已删除'})
+
+@app.route('/api/admin/users/<username>/reset-password', methods=['POST'])
+def admin_reset_password(username):
+    data = request.json
+    admin_username = data.get('adminUsername')
+    if not admin_username:
+        return jsonify({'success': False, 'msg': '缺少管理员用户名'}), 400
+    users = load_users()
+    if admin_username not in users or users[admin_username].get('role') != 'admin':
+        return jsonify({'success': False, 'msg': '无权限'}), 403
+    if username not in users:
+        return jsonify({'success': False, 'msg': '用户不存在'}), 404
+    new_password = '123456'
+    users[username]['password'] = new_password
+    save_users(users)
+    return jsonify({'success': True, 'msg': f'密码已重置为 {new_password}', 'new_password': new_password})
+
+# 确保超级管理员存在
+users = load_users()
+if 'ysc' not in users:
+    users['ysc'] = {
+        'password': '20120924',
+        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'role': 'admin'
+    }
+    save_users(users)
+    save_students([], 'ysc')
+else:
+    if users['ysc'].get('role') != 'admin':
+        users['ysc']['role'] = 'admin'
+        save_users(users)
+# 获取注释
+@app.route('/api/notes', methods=['GET'])
+def get_notes():
+    username = request.args.get('username')
+    if not username:
+        return jsonify({'success': False, 'msg': '缺少用户名'}), 400
+    notes = load_notes(username)
+    return jsonify({'success': True, 'data': notes})
+
+# 更新注释（全量更新）
+@app.route('/api/notes', methods=['POST'])
+def update_notes():
+    data = request.json
+    username = data.get('username')
+    notes = data.get('notes')  # 期望传入完整的 notes 对象
+    if not username or notes is None:
+        return jsonify({'success': False, 'msg': '缺少用户名或注释数据'}), 400
+    save_notes(username, notes)
+    return jsonify({'success': True, 'msg': '注释已更新'})
+@app.route('/api/admin/clear-all-scores', methods=['POST'])
+def clear_all_scores():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    if not username or not password:
+        return jsonify({'success': False, 'msg': '缺少必要参数'}), 400
+    users = load_users()
+    if username not in users or users[username]['password'] not in password:
+        return jsonify({'success': False, 'msg': '密码错误'}), 401
+
+    students = load_students(username)
+    for s in students:
+        s['positive_score'] = 0
+        s['negative_score'] = 0
+        s['total_score'] = 0
+        # 根据累计经验重新计算等级（等级不变）
+        s['level'] = max(1, s.get('accrued_exp', 0) // 10 + 1)
+        s['history'].append({
+            'type': '积分清零',
+            'positive_score': 0,
+            'negative_score': 0,
+            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+    save_students(students, username)
+    return jsonify({'success': True, 'msg': '所有学生积分已清零'})
+# 全局公告文件路径
+GLOBAL_ANNOUNCEMENT_FILE = os.path.join(DATA_DIR, 'global_announcement.json')
+
+def load_global_announcement():
+    if os.path.exists(GLOBAL_ANNOUNCEMENT_FILE):
+        try:
+            with open(GLOBAL_ANNOUNCEMENT_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {"content": "", "history": []}
+    return {"content": "", "history": []}
+
+def save_global_announcement(data):
+    with open(GLOBAL_ANNOUNCEMENT_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+# 获取全局公告
+@app.route('/api/global-announcement', methods=['GET'])
+def get_global_announcement():
+    data = load_global_announcement()
+    return jsonify(data)
+
+# 更新全局公告（仅 ysc 可操作）
+@app.route('/api/global-announcement', methods=['POST'])
+def update_global_announcement():
+    data = request.json
+    username = data.get('username')
+    content = data.get('content')
+    if not username or content is None:
+        return jsonify({'success': False, 'msg': '缺少参数'}), 400
+    user = users.get(username)
+    if not (username == 'ysc' or (user and user.get('role') == 'admin')):
+        return jsonify({'success': False, 'msg': '只有管理员可以修改全局公告'}), 403
+    ann_data = load_global_announcement()
+    # 保存旧内容到历史记录（可选，最多保留20条）
+    if ann_data['content'] and ann_data['content'] != content:
+        ann_data['history'].insert(0, {
+            'content': ann_data['content'],
+            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'author': username
+        })
+        if len(ann_data['history']) > 20:
+            ann_data['history'] = ann_data['history'][:20]
+    ann_data['content'] = content
+    save_global_announcement(ann_data)
+    return jsonify({'success': True, 'msg': '全局公告已更新'})
+# ========== 系统更新日志 ==========
+UPDATE_LOG_FILE = os.path.join(DATA_DIR, 'update_log.md')
+
+def load_update_log():
+    """读取更新日志 Markdown 文件内容"""
+    if os.path.exists(UPDATE_LOG_FILE):
+        try:
+            with open(UPDATE_LOG_FILE, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            return f"加载更新日志失败：{str(e)}"
+    else:
+        # 创建默认更新日志
+        default_content = """# 📢 系统更新日志
+
+## v21.2 (2025-04-09)
+- 新增全局公告系统（管理员可编辑）
+- 等级系统改为基于累计经验值，清零后等级保留
+- 密码验证改为“包含子串”模式，增强防偷窥
+- 优化积分滚动图表，支持横向滑动
+- 修复注释显示、模态框层级等若干问题
+
+## v21.1 (2025-03-20)
+- 初始融合版发布
+- 支持多用户、锁定/解锁、积分支付与添加
+- 添加学生注释功能
+"""
+        # 确保目录存在
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(UPDATE_LOG_FILE, 'w', encoding='utf-8') as f:
+            f.write(default_content)
+        return default_content
+
+@app.route('/api/update-log', methods=['GET'])
+def get_update_log():
+    """获取系统更新日志（Markdown格式）"""
+    content = load_update_log()
+    return jsonify({'success': True, 'content': content})
+@app.route('/index-play.html')
+def play_page():
+    return render_template('index-play.html')
+# 维护开关检查
+@app.route('/api/play/status', methods=['GET'])
+def play_status():
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'play_config.txt')
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip().lower()
+            enabled = 'play=true' in content
+        else:
+            enabled = False
+    except:
+        enabled = False
+    return jsonify({'enabled': enabled})
+
+@app.route('/api/play/weekly-wins', methods=['GET'])
+def get_student_weekly_wins():
+    username = request.args.get('username')
+    student_id = request.args.get('student_id')
+    if not username or not student_id:
+        return jsonify({'success': False, 'msg': '缺少参数'}), 400
+    
+    students = load_students(username)
+    student = next((s for s in students if s['id'] == student_id), None)
+    if not student:
+        return jsonify({'success': False, 'msg': '学号不存在'}), 404
+    
+    reset_student_weekly_if_needed(student)
+    save_students(students, username)  # 如果重置了需保存
+    
+    return jsonify({'success': True, 'weekly_wins': student['weekly_wins']})
+
+# 记录胜利并奖励经验
+@app.route('/api/play/win', methods=['POST'])
+def record_win():
+    data = request.json
+    username = data.get('username')
+    student_id = data.get('student_id')
+    game_type = data.get('game_type', 'gomoku')
+    difficulty = data.get('difficulty', 'normal')
+
+    if not username or not student_id:
+        return jsonify({'success': False, 'msg': '参数错误'}), 400
+
+    students = load_students(username)
+    student = next((s for s in students if s['id'] == student_id), None)
+    if not student:
+        return jsonify({'success': False, 'msg': '学号不存在'}), 404
+
+    reset_student_weekly_if_needed(student)
+    if student['weekly_wins'] >= 4:
+        return jsonify({'success': False, 'msg': '该学生本周奖励次数已用完'})
+
+    # 根据难度决定经验增加量
+    exp_settings = {'easy': 3, 'normal': 4, 'hard': 5, 'vs': 0}  # vs 超简单无经验
+    exp_add = exp_settings.get(difficulty, 5)
+    if exp_add == 0:
+        return jsonify({'success': False, 'msg': '超简单模式无经验奖励'})
+
+    student['accrued_exp'] = student.get('accrued_exp', 0) + exp_add
+    new_level = max(1, student['accrued_exp'] // 10 + 1)
+    student['level'] = new_level
+    student['weekly_wins'] += 1
+
+    save_students(students, username)
+    # 记录游戏胜利
+    add_game_win(username, student_id, game_type)
+
+    return jsonify({
+        'success': True,
+        'weekly_wins': student['weekly_wins'],
+        'new_level': new_level
+    })
+    
+# 玩法大厅
+@app.route('/play/')
+def play_lobby():
+    return render_template('play/index.html')
+
+# 五子棋游戏
+@app.route('/play/gomoku')
+def play_gomoku():
+    return render_template('play/game/gomoku.html')
+@app.route('/play/chess')
+def play_chess():
+    return render_template('play/game/chess.html')
+@app.route('/play/sudoku')
+def play_sudoku():
+    return render_template('play/game/sudoku.html')
+# ---------- 玩法大厅开关管理 ----------
+@app.route('/api/play/config', methods=['GET'])
+def get_play_config():
+    """获取玩法大厅启用状态"""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'play_config.txt')
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip().lower()
+            enabled = 'play=true' in content
+        else:
+            enabled = False
+        return jsonify({'enabled': enabled})
+    except Exception as e:
+        return jsonify({'enabled': False, 'error': str(e)}), 500
+
+@app.route('/api/play/config', methods=['POST'])
+def set_play_config():
+    """设置玩法大厅启用状态（仅超级管理员）"""
+    data = request.json
+    enabled = data.get('enabled', True)
+    
+    # 权限检查（从 session 或 token 获取当前用户，这里从请求体传 username 简单校验）
+    username = data.get('username')
+    if username != 'ysc':
+        return jsonify({'success': False, 'msg': '无权限'}), 403
+
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'play_config.txt')
+        content = f'play={str(enabled).lower()}'
+        with open(config_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return jsonify({'success': True, 'msg': f'玩法大厅已{"启用" if enabled else "关闭"}'})
+    except Exception as e:
+        return jsonify({'success': False, 'msg': str(e)}), 500
+# ---------- 游戏统计 ----------
+GAME_STATS_FILE = os.path.join(DATA_DIR, 'game_stats.json')
+
+def load_game_stats():
+    if os.path.exists(GAME_STATS_FILE):
+        try:
+            with open(GAME_STATS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_game_stats(data):
+    with open(GAME_STATS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+def add_game_win(username, student_id, game_type):
+    stats = load_game_stats()
+    if username not in stats:
+        stats[username] = {}
+    if student_id not in stats[username]:
+        stats[username][student_id] = {'gomoku': 0, 'chess': 0, 'sudoku': 0}
+    stats[username][student_id][game_type] = stats[username][student_id].get(game_type, 0) + 1
+    save_game_stats(stats)
+# 排行榜接口
+@app.route('/api/play/leaderboard', methods=['GET'])
+def game_leaderboard():
+    username = request.args.get('username')
+    game_type = request.args.get('game', 'gomoku')
+    if not username or game_type not in ['gomoku', 'chess', 'sudoku']:
+        return jsonify({'success': False, 'msg': '参数错误'}), 400
+
+    stats = load_game_stats()
+    user_stats = stats.get(username, {})
+
+    # 构建排名列表
+    leaderboard = []
+    for student_id, game_wins in user_stats.items():
+        wins = game_wins.get(game_type, 0)
+        if wins > 0:
+            # 获取学生姓名
+            student = next((s for s in load_students(username) if s['id'] == student_id), None)
+            name = student['name'] if student else '未知'
+            leaderboard.append({
+                'student_id': student_id,
+                'name': name,
+                'wins': wins
+            })
+
+    # 按胜利次数降序排列
+    leaderboard.sort(key=lambda x: x['wins'], reverse=True)
+    # 限制前20名
+    leaderboard = leaderboard[:20]
+
+    return jsonify({'success': True, 'data': leaderboard})
+@app.route('/api/play/global-leaderboard', methods=['GET'])
+def global_leaderboard():
+    game_type = request.args.get('game', 'gomoku')
+    if game_type not in ['gomoku', 'chess', 'sudoku']:
+        return jsonify({'success': False, 'msg': '参数错误'}), 400
+
+    stats = load_game_stats()  # 您已有的全局统计
+    aggregated = {}
+    for username, user_stats in stats.items():
+        for student_id, wins_obj in user_stats.items():
+            wins = wins_obj.get(game_type, 0)
+            if wins > 0:
+                if student_id not in aggregated:
+                    aggregated[student_id] = {'name': '未知', 'wins': 0}
+                aggregated[student_id]['wins'] += wins
+
+    # 试着获取一次学生姓名（从任意班级加载）
+    # 简单起见，取第一个有该学生的班级
+    for student_id in aggregated:
+        student_name = None
+        for username in stats:
+            students = load_students(username)
+            stu = next((s for s in students if s['id'] == student_id), None)
+            if stu:
+                student_name = stu['name']
+                break
+        aggregated[student_id]['name'] = student_name or '未知'
+
+    leaderboard = []
+    for sid, data in aggregated.items():
+        leaderboard.append({
+            'student_id': sid,
+            'name': data['name'],
+            'wins': data['wins']
+        })
+    leaderboard.sort(key=lambda x: x['wins'], reverse=True)
+    return jsonify({'success': True, 'data': leaderboard[:20]})
+@app.route('/teacher')
+def teacher_login():
+    return render_template('index-T.html')
+
+@app.route('/student')
+def student_query_page():
+    return render_template('index-S.html')
+@app.route('/api/student-query', methods=['GET'])
+def student_query():
+    username = request.args.get('username', '').strip()
+    student_id = request.args.get('student_id', '').strip()
+    student_name = request.args.get('student_name', '').strip()
+    if not username:
+        return jsonify({'success': False, 'msg': '请输入班级账号名'}), 400
+    if not student_id and not student_name:
+        return jsonify({'success': False, 'msg': '请输入学号或姓名'}), 400
+
+    students = load_students(username)
+    if not students:
+        return jsonify({'success': False, 'msg': '未找到该班级或班级无学生'}), 404
+
+    student = None
+    if student_id:
+        student = next((s for s in students if s['id'] == student_id), None)
+    else:
+        student = next((s for s in students if s['name'] == student_name), None)
+
+    if not student:
+        return jsonify({'success': False, 'msg': '学生不存在'}), 404
+
+    notes = load_notes(username).get(student['id'], [])
+    return jsonify({
+        'success': True,
+        'data': {
+            'student': student,
+            'notes': notes
+        }
+    })
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>🎮 class score · 玩法大厅</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+    <!-- 预加载游戏依赖库，用于检测 -->
+    <script src="{{ url_for('static', filename='js/xiangqi.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sudoku-pro.min.js') }}"></script>
+    <style>
+        :root {
+            --card-delay: 0ms;
+        }
+        body { background: #f3f4f6; }
+        .game-card {
+		    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		    cursor: pointer;
+		    opacity: 0;
+		    transform: translateY(30px);
+		    animation: cardSlideIn 0.6s ease forwards;
+		}
+		.game-card:hover:not(.disabled-card) {
+		    transform: translateY(-6px) scale(1.02);
+		    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.15), 0 10px 10px -5px rgba(0,0,0,0.05);
+		}
+		.game-card:active:not(.disabled-card) {
+		    transform: scale(0.96);
+		    transition: transform 0.1s;
+		}
+        .game-card.card-visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .game-card.disabled-card {
+            filter: grayscale(80%);
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+        .game-card .check-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #e2e8f0;
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes cardSlideIn {
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* 加载遮罩 */
+        #loadingOverlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255,255,255,0.95);
+            z-index: 99999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.4s;
+        }
+        .progress-container {
+            width: 300px;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 999px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #3b82f6, #2563eb);
+            border-radius: 999px;
+            transition: width 0.3s;
+        }
+        .loading-text {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e293b;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .loading-dots::after {
+            content: '';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: ''; } 40% { content: '.'; } 60% { content: '..'; } 80%,100% { content: '...'; }
+        }
+        .check-status {
+            font-size: 14px;
+            color: #475569;
+            margin-top: 6px;
+        }
+        .leaderboard-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .leaderboard-table th, .leaderboard-table td {
+            padding: 12px 16px;
+            text-align: left;
+        }
+        .leaderboard-table thead {
+            background: #f8fafc;
+            font-weight: 600;
+            color: #334155;
+        }
+        .rank-badge {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #e2e8f0;
+            text-align: center;
+            line-height: 24px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .rank-1 { background: #fbbf24; color: white; }
+        .rank-2 { background: #94a3b8; color: white; }
+        .rank-3 { background: #cd7f32; color: white; }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+
+<!-- 加载遮罩 -->
+<div id="loadingOverlay">
+    <div class="progress-container">
+        <div id="progressBar" class="progress-bar" style="width:0%"></div>
+    </div>
+    <div class="loading-text">
+        <span id="loadingPhase">正在检查环境</span><span class="loading-dots"></span>
+        <span id="loadingPercent" style="margin-left:4px;"></span>
+    </div>
+    <div id="checkDetail" class="check-status"></div>
+</div>
+
+<!-- 主内容 -->
+<div id="mainContent" style="display:none;">
+    <div class="container mx-auto px-4 py-4">
+        <div class="flex justify-between items-center mb-6" style="opacity:0; transform:translateY(20px); animation:cardSlideIn 0.5s 0.2s forwards;">
+            <h1 class="text-3xl font-bold text-gray-800 flex items-center gap-2">
+                <i class="fa fa-gamepad text-blue-600"></i>玩法大厅
+            </h1>
+            <div class="flex items-center gap-4" style="opacity:0; transform:translateY(20px); animation:cardSlideIn 0.5s 0.3s forwards;">
+                <span id="displayUsername" class="text-gray-700 font-medium"></span>
+                <a href="/teacher" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg text-sm transition">
+                    <i class="fa fa-arrow-left mr-1"></i>返回主页
+                </a>
+            </div>
+        </div>
+
+        <!-- 游戏卡片 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
+            <!-- 五子棋卡片（无依赖，始终可用） -->
+            <div class="bg-white rounded-xl shadow p-5 game-card" data-game="gomoku" style="animation-delay: 0.4s;">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center overflow-hidden">
+                        <img src="/static/images/gomoku.ico" alt="五子棋" class="w-full h-full object-cover" onerror="this.onerror=null; this.parentNode.innerHTML='<i class=\'fa fa-chess-board text-blue-600 text-2xl\'></i>';">
+                    </div>
+                    <h3 class="text-xl font-bold">五子棋</h3>
+                    <span class="check-spinner" id="spinner-gomoku" style="display:none;"></span>
+                </div>
+                <p class="text-gray-600 text-sm mb-4">与 AI 对战，胜利可获经验奖励！</p>
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-gray-400">难度：简单/普通/困难</span>
+                    <span class="text-blue-600 text-sm font-medium">点击进入 →</span>
+                </div>
+            </div>
+            <!-- 中国象棋卡片 (需要 Xiangqi) -->
+            <div class="bg-white rounded-xl shadow p-5 game-card" data-game="chess" style="animation-delay: 0.5s;">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center overflow-hidden">
+                        <img src="/static/images/chess.ico" alt="象棋" class="w-full h-full object-cover" onerror="this.onerror=null; this.parentNode.innerHTML='<i class=\'fa fa-chess-queen text-red-600 text-2xl\'></i>';">
+                    </div>
+                    <h3 class="text-xl font-bold">中国象棋</h3>
+                    <span class="check-spinner" id="spinner-chess"></span>
+                </div>
+                <p class="text-gray-600 text-sm mb-4">楚河汉界，与 AI 一决高下！</p>
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-gray-400">难度：简单/普通/困难</span>
+                    <span class="text-red-600 text-sm font-medium" id="chess-action-text">正在检查依赖...</span>
+                </div>
+            </div>
+            <!-- 数独卡片 (需要 SudokuPro) -->
+            <div class="bg-white rounded-xl shadow p-5 game-card" data-game="sudoku" style="animation-delay: 0.6s;">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center overflow-hidden">
+                        <img src="/static/images/sudoku-icon.png" alt="数独" class="w-full h-full object-cover" onerror="this.onerror=null; this.parentNode.innerHTML='<i class=\'fa fa-th text-green-600 text-2xl\'></i>';">
+                    </div>
+                    <h3 class="text-xl font-bold">数独 · 九宫格</h3>
+                    <span class="check-spinner" id="spinner-sudoku"></span>
+                </div>
+                <p class="text-gray-600 text-sm mb-4">挑战逻辑思维，完成谜题赢取经验！</p>
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-gray-400">难度：超简单/简单/普通/困难</span>
+                    <span class="text-green-600 text-sm font-medium" id="sudoku-action-text">正在检查依赖...</span>
+                </div>
+            </div>
+            <!-- 更多玩法占位 -->
+            <div class="bg-gray-50 rounded-xl shadow p-5 border border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 game-card" style="animation-delay: 0.7s;">
+                <i class="fa fa-hourglass-half text-4xl mb-2"></i>
+                <p class="font-medium">更多玩法</p>
+                <p class="text-sm">持续更新中</p>
+            </div>
+        </div>
+
+        <!-- 排行榜区域 -->
+        <div class="bg-white rounded-xl shadow p-5" style="opacity:0; transform:translateY(20px); animation:cardSlideIn 0.5s 0.6s forwards;">
+            <div class="flex flex-wrap justify-between items-center mb-4">
+                <h3 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                    <i class="fa fa-trophy text-yellow-500"></i> 荣耀排行榜
+                </h3>
+                <div class="flex items-center gap-3">
+                    <span class="text-sm text-gray-600">选择游戏：</span>
+                    <select id="leaderboardGameSelect" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                        <option value="gomoku">五子棋</option>
+                        <option value="chess">中国象棋</option>
+                        <option value="sudoku">数独</option>
+                    </select>
+                    <select id="leaderboardScopeSelect" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                        <option value="class">班级排名</option>
+                        <option value="global">全站总排名</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2">
+                    <canvas id="leaderboardChart" height="300"></canvas>
+                </div>
+                <div>
+                    <table class="leaderboard-table">
+                        <thead><tr><th>排名</th><th>学生</th><th>胜利次数</th></tr></thead>
+                        <tbody id="leaderboardTableBody">
+                            <tr><td colspan="3" class="text-center text-gray-400 py-8">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (async function() {
+        // 获取当前用户
+        const storedUser = sessionStorage.getItem('playCurrentUser');
+        if (!storedUser) {
+            window.location.href = '/';
+            return;
+        }
+        const currentUser = JSON.parse(storedUser);
+        document.getElementById('displayUsername').innerText = `👤 ${currentUser.username}`;
+
+        // 维护检查
+        try {
+            const res = await fetch('/api/play/status');
+            const data = await res.json();
+            if (!data.enabled) {
+                document.body.innerHTML = `
+                    <div class="flex items-center justify-center min-h-screen">
+                        <div class="text-center p-8 bg-white rounded-xl shadow-lg">
+                            <i class="fa fa-tools text-6xl text-gray-400 mb-4"></i>
+                            <h2 class="text-2xl font-bold text-gray-700">玩法大厅维护中</h2>
+                            <p class="text-gray-500 mt-2">请稍后再来体验</p>
+                            <a href="/" class="inline-block mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg">返回主页</a>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+        } catch (e) { console.error('维护检查失败'); }
+
+        // 加载进度元素
+        const progressBar = document.getElementById('progressBar');
+        const loadingPhase = document.getElementById('loadingPhase');
+        const loadingPercent = document.getElementById('loadingPercent');
+        const checkDetail = document.getElementById('checkDetail');
+        const overlay = document.getElementById('loadingOverlay');
+        const mainContent = document.getElementById('mainContent');
+
+        // 定义检查项
+        const checks = [
+            { name: '用户信息', fn: async () => !!currentUser },
+            { name: '学生数据', fn: async () => {
+                try {
+                    const res = await fetch(`/api/students?username=${currentUser.username}`);
+                    const students = await res.json();
+                    window.__students = students;
+                    return true;
+                } catch { return false; }
+            }},
+            { name: '五子棋引擎', fn: async () => true },
+            { name: '象棋引擎 (Xiangqi)', fn: async () => typeof window.Xiangqi === 'function' },
+            { name: '数独引擎 (SudokuPro)', fn: async () => typeof window.SudokuPro === 'object' && window.SudokuPro.generateSudoku },
+            { name: '排行榜服务', fn: async () => {
+                try {
+                    const res = await fetch(`/api/play/leaderboard?username=${currentUser.username}&game=gomoku`);
+                    const data = await res.json();
+                    return data.success;
+                } catch { return false; }
+            }},
+            { name: '图表库', fn: async () => typeof Chart !== 'undefined' }
+        ];
+
+        let completed = 0;
+        const total = checks.length;
+        const results = {};
+
+        function updateProgress(stepName, status) {
+            completed++;
+            const percent = Math.round((completed / total) * 100);
+            progressBar.style.width = percent + '%';
+            loadingPercent.textContent = percent + '%';   // 显示百分比
+            checkDetail.textContent = `${stepName} ${status ? '✓' : '✗'}`;
+        }
+
+        // 初始状态
+        loadingPhase.innerHTML = '正在检查环境<span class="loading-dots"></span>';
+        loadingPercent.textContent = '0%';
+
+        // 执行检查
+        for (let i = 0; i < total; i++) {
+            const check = checks[i];
+            let success = false;
+            try {
+                success = await check.fn();
+            } catch (e) {
+                success = false;
+            }
+            results[check.name] = success;
+            updateProgress(check.name, success);
+            await new Promise(r => setTimeout(r, 300));
+        }
+
+        // 所有检查完成后，百分比消失，显示3秒加载动画
+        progressBar.style.width = '100%';
+        loadingPercent.textContent = '';
+        checkDetail.textContent = '';
+        loadingPhase.innerHTML = '即将进入大厅<span class="loading-dots"></span>';
+
+        await new Promise(r => setTimeout(r, 3000));
+
+        overlay.style.opacity = '0';
+        setTimeout(() => {
+            overlay.style.display = 'none';
+            mainContent.style.display = 'block';
+        }, 400);
+
+        // 卡片依赖检测
+        toggleCardStatus('chess', results['象棋引擎 (Xiangqi)']);
+        toggleCardStatus('sudoku', results['数独引擎 (SudokuPro)']);
+        toggleCardStatus('gomoku', true);
+
+        bindCardEvents();
+        initLeaderboard(currentUser.username);
+    })();
+
+    function toggleCardStatus(game, success) {
+        const card = document.querySelector(`.game-card[data-game="${game}"]`);
+        if (!card) return;
+        const spinner = document.getElementById(`spinner-${game}`);
+        const actionText = document.getElementById(`${game}-action-text`);
+        if (spinner) spinner.style.display = 'none';
+        if (!success) {
+            card.classList.add('disabled-card');
+            if (actionText) actionText.textContent = '不可用 (依赖缺失)';
+        } else {
+            card.classList.add('card-visible');
+            if (actionText) actionText.textContent = '点击进入 →';
+        }
+    }
+
+    function bindCardEvents() {
+	    const cards = {
+	        gomoku: document.querySelector('[data-game="gomoku"]'),
+	        chess: document.querySelector('[data-game="chess"]'),
+	        sudoku: document.querySelector('[data-game="sudoku"]')
+	    };
+	
+	    function handleCardClick(game, url) {
+	        const card = cards[game];
+	        if (!card) return;
+	
+	        if (card.classList.contains('disabled-card')) {
+	            const confirmMsg = {
+	                chess: '中国象棋引擎加载失败，游戏可能存在严重Bug或无法运行。是否仍然尝试进入？',
+	                sudoku: '数独引擎加载失败，游戏可能无法正常运行。是否仍然尝试进入？'
+	            }[game] || '依赖缺失，确定进入吗？';
+	            if (confirm(confirmMsg)) {
+	                transitionTo(url);
+	            }
+	            return;
+	        }
+	
+	        // 丝滑点击：添加一个极短的点击效果再跳转
+	        card.style.transform = 'scale(0.94)';
+	        card.style.transition = 'transform 0.1s';
+	        setTimeout(() => {
+	            card.style.transform = '';
+	            transitionTo(url);
+	        }, 120);
+	    }
+	
+	    function transitionTo(url) {
+	        // 全局淡入遮罩效果
+	        const mask = document.createElement('div');
+	        mask.style.position = 'fixed';
+	        mask.style.top = '0';
+	        mask.style.left = '0';
+	        mask.style.right = '0';
+	        mask.style.bottom = '0';
+	        mask.style.background = 'rgba(255,255,255,0.6)';
+	        mask.style.backdropFilter = 'blur(4px)';
+	        mask.style.zIndex = '99999';
+	        mask.style.opacity = '0';
+	        mask.style.transition = 'opacity 0.3s';
+	        document.body.appendChild(mask);
+	        requestAnimationFrame(() => { mask.style.opacity = '1'; });
+	        setTimeout(() => {
+	            window.location.href = url;
+	        }, 250);
+	    }
+	
+	    cards.gomoku.addEventListener('click', () => handleCardClick('gomoku', '/play/gomoku'));
+	    cards.chess.addEventListener('click', () => handleCardClick('chess', '/play/chess'));
+	    cards.sudoku.addEventListener('click', () => handleCardClick('sudoku', '/play/sudoku'));
+	}
+
+    // 排行榜功能
+    async function initLeaderboard(username) {
+        let leaderboardChart = null;
+        const gameSelect = document.getElementById('leaderboardGameSelect');
+        const scopeSelect = document.getElementById('leaderboardScopeSelect');
+
+        async function fetchLeaderboard(gameType, scope) {
+            try {
+                let url;
+                if (scope === 'global') {
+                    // 全站总排名接口，需要在后端实现
+                    url = `/api/play/global-leaderboard?game=${gameType}`;
+                } else {
+                    url = `/api/play/leaderboard?username=${username}&game=${gameType}`;
+                }
+                const res = await fetch(url);
+                const data = await res.json();
+                return data.success ? data.data : [];
+            } catch {
+                return [];
+            }
+        }
+
+        function renderTable(players) {
+            const tbody = document.getElementById('leaderboardTableBody');
+            tbody.innerHTML = '';
+            if (players.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-gray-400 py-8">暂无数据</td></tr>';
+                return;
+            }
+            players.forEach((p, idx) => {
+                const rank = idx + 1;
+                const rankClass = rank === 1 ? 'rank-1' : (rank === 2 ? 'rank-2' : (rank === 3 ? 'rank-3' : ''));
+                const row = `
+                    <tr class="border-b last:border-none">
+                        <td><span class="rank-badge ${rankClass}">${rank}</span></td>
+                        <td class="font-medium">${p.name} <span class="text-xs text-gray-500">(${p.student_id})</span></td>
+                        <td class="font-bold text-blue-600">${p.wins}</td>
+                    </tr>
+                `;
+                tbody.insertAdjacentHTML('beforeend', row);
+            });
+        }
+
+        function renderChart(players) {
+            const ctx = document.getElementById('leaderboardChart').getContext('2d');
+            if (leaderboardChart) leaderboardChart.destroy();
+            const labels = players.slice(0, 8).map(p => p.name);
+            const data = players.slice(0, 8).map(p => p.wins);
+            leaderboardChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '胜利次数',
+                        data: data,
+                        backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                        borderColor: 'rgb(59, 130, 246)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                }
+            });
+        }
+
+        async function update() {
+            const gameType = gameSelect.value;
+            const scope = scopeSelect.value;
+            const players = await fetchLeaderboard(gameType, scope);
+            renderTable(players);
+            renderChart(players);
+        }
+
+        gameSelect.addEventListener('change', update);
+        scopeSelect.addEventListener('change', update);
+        await update();
+    }
+</script>
+</body>
+</html>

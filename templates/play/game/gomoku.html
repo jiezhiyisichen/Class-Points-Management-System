@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>🎯 五子棋 · 像素创梦</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <style>
+        body { background: #f3f4f6; }
+        .board-wrapper {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        #gobanCanvas {
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            border-radius: 12px;
+            background: #EEC085;
+            cursor: pointer;
+        }
+        .info-panel {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .btn:disabled { opacity: 0.5; pointer-events: none; }
+        #toastContainer {
+            position: fixed; bottom: 24px; right: 24px;
+            z-index: 9999; display: flex; flex-direction: column-reverse; gap: 8px; pointer-events: none;
+        }
+        .toast {
+            background: #1e293b; color: white; padding: 10px 20px; border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); pointer-events: auto; animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        #loadingOverlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255,255,255,0.95); z-index: 100000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transition: opacity 0.4s;
+        }
+        .progress-container {
+            width: 260px; height: 6px; background: #e5e7eb; border-radius: 999px;
+            overflow: hidden; margin-bottom: 16px;
+        }
+        .progress-bar {
+            height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #2563eb);
+            border-radius: 999px; transition: width 0.1s;
+        }
+        .loading-text { font-size: 18px; font-weight: 600; color: #1e293b; letter-spacing: 2px; }
+        .loading-dots::after {
+            content: ''; animation: dots 1.5s steps(4, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: ''; } 40% { content: '.'; } 60% { content: '..'; } 80%,100% { content: '...'; }
+        }
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;
+        }
+        .modal-content {
+            background: white; border-radius: 16px; padding: 24px; max-width: 400px; width: 90%;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+        }
+        .timer { font-size: 1.1rem; font-weight: 600; color: #065f46; }
+
+        /* 倒计时覆盖层 */
+        #countdownOverlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
+            z-index: 20000; transition: opacity 0.3s;
+        }
+        .countdown-circle {
+            width: 120px; height: 120px; border-radius: 50%;
+            background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center;
+        }
+        .countdown-number {
+            font-size: 64px; font-weight: bold; color: white;
+            animation: pulse 1s ease-in-out;
+        }
+        @keyframes pulse {
+            0% { transform: scale(2); opacity: 0; } 50% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+
+<div id="loadingOverlay">
+    <div class="progress-container"><div id="progressBar" class="progress-bar" style="width:0%"></div></div>
+    <div class="loading-text">Loading<span class="loading-dots"></span></div>
+</div>
+
+<div id="toastContainer"></div>
+
+<div id="countdownOverlay" style="display:none;">
+    <div class="countdown-circle"><span id="countdownNumber" class="countdown-number">3</span></div>
+</div>
+
+<div id="mainContent" style="display:none;">
+    <div class="container mx-auto px-4 py-4">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800 flex items-center gap-2">
+                <i class="fa fa-chess-board text-blue-600"></i> 五子棋 · 人机对战
+            </h1>
+            <div class="flex items-center gap-4">
+                <span id="displayUsername" class="text-gray-700 font-medium"></span>
+                <a href="/play/" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg text-sm transition">
+                    <i class="fa fa-arrow-left mr-1"></i>返回大厅
+                </a>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-xl shadow p-4">
+                    <div class="board-wrapper">
+                        <canvas id="gobanCanvas" width="540" height="540"></canvas>
+                    </div>
+                    <div class="flex justify-between items-center mt-4">
+                        <button id="restartBtn" class="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2 rounded-lg shadow" disabled>
+                            <i class="fa fa-refresh mr-1"></i>新一局
+                        </button>
+                        <div id="gameStatusDisplay" class="text-lg font-semibold text-gray-700">等待开始</div>
+                        <button id="surrenderBtn" class="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-lg shadow" disabled>
+                            <i class="fa fa-flag mr-1"></i>认输
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="info-panel">
+                <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+                    <i class="fa fa-gamepad text-blue-500"></i>对局信息
+                </h3>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-600 mb-1">获胜学生学号</label>
+                    <input type="text" id="studentIdInput" placeholder="输入学号"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-600 mb-1">AI 难度</label>
+                    <select id="difficultySelect" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                        <option value="easy">简单 (+0.3级)</option>
+                        <option value="normal" selected>普通 (+0.4级)</option>
+                        <option value="hard">困难 (+0.5级)</option>
+                    </select>
+                </div>
+                <button id="startGameBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold mb-4 shadow">
+                    <i class="fa fa-play mr-2"></i>开始对局
+                </button>
+                <div class="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <div class="flex justify-between">
+                        <span class="text-gray-600"><i class="fa fa-user-circle mr-1"></i>先手方</span>
+                        <span id="firstPlayerDisplay" class="font-bold text-gray-800">—</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-600"><i class="fa fa-clock-o mr-1"></i>用时</span>
+                        <span id="timerDisplay" class="timer">00:00</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-600"><i class="fa fa-shoe-prints mr-1"></i>步数</span>
+                        <span id="moveCountDisplay" class="font-bold text-gray-800">0</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-600"><i class="fa fa-trophy mr-1"></i>本周胜利</span>
+                        <span id="weekWinCountDisplay" class="font-bold text-blue-600">0 / 4</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-600"><i class="fa fa-level-up mr-1"></i>获胜奖励</span>
+                        <span id="rewardText" class="font-bold text-green-600">+0.4 级经验</span>
+                    </div>
+                </div>
+                <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+                    <i class="fa fa-info-circle mr-1"></i>
+                    战胜AI即可获得经验，每周限4次。
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function(){
+        "use strict";
+
+        // ---------- 五子棋游戏类 (增强) ----------
+        class GomokuGame {
+            constructor(boardSize = 15, winCondition = 5) {
+                this.boardSize = boardSize;
+                this.winCondition = winCondition;
+                this.board = Array(boardSize).fill().map(() => Array(boardSize).fill(null));
+                this.currentPlayer = 0;
+                this.winner = null;
+                this.lastMove = null;        // {row, col}
+                this.winLine = null;         // [{row, col}, ...]
+                this.moveCount = 0;
+            }
+            getChess(row, col) {
+                if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return null;
+                return this.board[row][col];
+            }
+            setChess(row, col, player = this.currentPlayer) {
+                if (this.winner !== null) return false;
+                if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return false;
+                if (this.board[row][col] !== null) return false;
+                this.board[row][col] = player;
+                this.lastMove = { row, col };
+                this.moveCount++;
+                if (this.checkWin(row, col, player)) {
+                    this.winner = player;
+                }
+                this.currentPlayer = 1 - player;
+                return true;
+            }
+            checkWin(row, col, player) {
+                const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+                for (let [dx, dy] of dirs) {
+                    let cells = [{row, col}];
+                    // 正方向
+                    for (let step = 1; step < this.winCondition; step++) {
+                        const nr = row + dx*step, nc = col + dy*step;
+                        if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) break;
+                        if (this.board[nr][nc] === player) cells.push({row: nr, col: nc});
+                        else break;
+                    }
+                    // 负方向
+                    for (let step = 1; step < this.winCondition; step++) {
+                        const nr = row - dx*step, nc = col - dy*step;
+                        if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) break;
+                        if (this.board[nr][nc] === player) cells.push({row: nr, col: nc});
+                        else break;
+                    }
+                    if (cells.length >= this.winCondition) {
+                        this.winLine = cells.slice(0, this.winCondition);
+                        return true;
+                    }
+                }
+                return false;
+            }
+            reset() {
+                this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(null));
+                this.currentPlayer = 0;
+                this.winner = null;
+                this.lastMove = null;
+                this.winLine = null;
+                this.moveCount = 0;
+            }
+            getWinner() { return this.winner; }
+            isDraw() {
+                if (this.winner !== null) return false;
+                for (let r=0; r<this.boardSize; r++) for (let c=0; c<this.boardSize; c++) if (this.board[r][c]===null) return false;
+                return true;
+            }
+        }
+
+        // ---------- 全局变量 ----------
+        let currentUser = null, students = [], currentStudentId = '', weekWinCount = 0;
+        const MAX_WEEK_WINS = 4;
+        const BOARD_SIZE = 15, WIN_CONDITION = 5;
+        let game = new GomokuGame(BOARD_SIZE, WIN_CONDITION);
+        let canvas, ctx;
+        let gameActive = false, gameOver = false;
+        let playerColor = 'black', aiColor = 'white', currentTurn = null;
+
+        // DOM 元素
+        let gameStatusDisplay, firstPlayerDisplay, weekWinCountDisplay, studentIdInput, startGameBtn, restartBtn, surrenderBtn, difficultySelect, rewardText;
+        let timerDisplay, moveCountDisplay;
+        const toastContainer = document.getElementById('toastContainer');
+        const mainContent = document.getElementById('mainContent');
+        const overlay = document.getElementById('loadingOverlay');
+        const progressBar = document.getElementById('progressBar');
+
+        // 倒计时相关
+        const countdownOverlay = document.getElementById('countdownOverlay');
+        const countdownNumber = document.getElementById('countdownNumber');
+
+        // 计时器
+        let timerInterval = null, startTime = null, elapsedSeconds = 0;
+
+        // ---------- 工具函数 ----------
+        function startTimer() {
+            stopTimer();
+            elapsedSeconds = 0;
+            startTime = Date.now();
+            updateTimerDisplay();
+            timerInterval = setInterval(() => {
+                elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+                updateTimerDisplay();
+            }, 200);
+        }
+        function stopTimer() {
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        }
+        function updateTimerDisplay() {
+            const mins = Math.floor(elapsedSeconds / 60).toString().padStart(2, '0');
+            const secs = (elapsedSeconds % 60).toString().padStart(2, '0');
+            if (timerDisplay) timerDisplay.innerText = `${mins}:${secs}`;
+        }
+
+        function updateMoveCount() {
+            if (moveCountDisplay) moveCountDisplay.innerText = game.moveCount;
+        }
+
+        // 倒计时动画
+        function startCountdown(seconds, callback) {
+            countdownOverlay.style.display = 'flex';
+            let remaining = seconds;
+            const el = countdownNumber;
+            function show(num) {
+                el.textContent = num;
+                el.style.animation = 'none';
+                el.offsetWidth;
+                el.style.animation = 'pulse 1s ease-in-out';
+            }
+            show(remaining);
+            const interval = setInterval(() => {
+                remaining--;
+                if (remaining <= 0) {
+                    clearInterval(interval);
+                    countdownOverlay.style.opacity = '0';
+                    setTimeout(() => {
+                        countdownOverlay.style.display = 'none';
+                        countdownOverlay.style.opacity = '1';
+                        callback();
+                    }, 400);
+                } else {
+                    show(remaining);
+                }
+            }, 1000);
+        }
+
+        // ---------- 加载动画 ----------
+        function initLoading() {
+            let width = 0;
+            const startTime = Date.now(), minDuration = 3000;
+            const interval = setInterval(() => {
+                width += Math.floor(Math.random() * 15) + 5;
+                if (width >= 100) {
+                    width = 100;
+                    progressBar.style.width = '100%';
+                    clearInterval(interval);
+                    const elapsed = Date.now() - startTime;
+                    setTimeout(() => {
+                        overlay.style.opacity = '0';
+                        setTimeout(() => {
+                            overlay.style.display = 'none';
+                            mainContent.style.display = 'block';
+                            initApp();
+                        }, 400);
+                    }, Math.max(0, minDuration - elapsed));
+                } else {
+                    progressBar.style.width = width + '%';
+                }
+            }, 100);
+        }
+
+        async function initApp() {
+            const storedUser = sessionStorage.getItem('playCurrentUser');
+            if (!storedUser) { window.location.href = '/'; return; }
+            currentUser = JSON.parse(storedUser);
+            document.getElementById('displayUsername').innerText = `👤 ${currentUser.username}`;
+
+            await loadStudents();
+
+            canvas = document.getElementById('gobanCanvas');
+            ctx = canvas.getContext('2d');
+            gameStatusDisplay = document.getElementById('gameStatusDisplay');
+            firstPlayerDisplay = document.getElementById('firstPlayerDisplay');
+            weekWinCountDisplay = document.getElementById('weekWinCountDisplay');
+            studentIdInput = document.getElementById('studentIdInput');
+            startGameBtn = document.getElementById('startGameBtn');
+            restartBtn = document.getElementById('restartBtn');
+            surrenderBtn = document.getElementById('surrenderBtn');
+            difficultySelect = document.getElementById('difficultySelect');
+            rewardText = document.getElementById('rewardText');
+            timerDisplay = document.getElementById('timerDisplay');
+            moveCountDisplay = document.getElementById('moveCountDisplay');
+
+            drawBoard();
+
+            studentIdInput.addEventListener('input', async () => {
+                const id = studentIdInput.value.trim();
+                if (id) {
+                    weekWinCount = await loadWeekWinCount(id);
+                    updateWeekWinDisplay();
+                }
+            });
+            difficultySelect.addEventListener('change', (e) => {
+                const val = e.target.value;
+                const expMap = { easy: '0.3', normal: '0.4', hard: '0.5' };
+                rewardText.innerText = `+${expMap[val]} 级经验`;
+            });
+            startGameBtn.addEventListener('click', onStartGame);
+            restartBtn.addEventListener('click', () => {
+                if (gameActive && !gameOver && !confirm('对局尚未结束，确定重新开始？')) return;
+                startNewGame();
+            });
+            surrenderBtn.addEventListener('click', surrender);
+            canvas.addEventListener('click', handleCanvasClick);
+        }
+
+        async function loadStudents() {
+            try {
+                const res = await fetch(`/api/students?username=${currentUser.username}`);
+                if (res.ok) students = await res.json();
+            } catch(e) {}
+        }
+
+        async function loadWeekWinCount(studentId) {
+            try {
+                const res = await fetch(`/api/play/weekly-wins?username=${currentUser.username}&student_id=${studentId}`);
+                const data = await res.json();
+                return data.success ? data.weekly_wins : 0;
+            } catch { return 0; }
+        }
+
+        function updateWeekWinDisplay() {
+            weekWinCountDisplay.innerText = `${weekWinCount} / ${MAX_WEEK_WINS}`;
+        }
+
+        function drawBoard() {
+            const cellSize = canvas.width / BOARD_SIZE;
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            ctx.strokeStyle = '#3a2a1e';
+            ctx.lineWidth = 1.5;
+            for (let i=0; i<BOARD_SIZE; i++) {
+                const pos = i*cellSize+cellSize/2;
+                ctx.beginPath();
+                ctx.moveTo(cellSize/2, pos);
+                ctx.lineTo(canvas.width-cellSize/2, pos);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(pos, cellSize/2);
+                ctx.lineTo(pos, canvas.height-cellSize/2);
+                ctx.stroke();
+            }
+            [[7,7],[3,3],[11,3],[3,11],[11,11]].forEach(([x,y]) => {
+                ctx.beginPath();
+                ctx.arc(x*cellSize+cellSize/2, y*cellSize+cellSize/2, 4, 0, 2*Math.PI);
+                ctx.fillStyle = '#3a2a1e';
+                ctx.fill();
+            });
+
+            // 绘制棋子
+            for (let r=0; r<BOARD_SIZE; r++) {
+                for (let c=0; c<BOARD_SIZE; c++) {
+                    const p = game.getChess(r,c);
+                    if (p===0) drawPiece(r,c,'#1a1a1a');
+                    else if (p===1) drawPiece(r,c,'#f0f0f0');
+                }
+            }
+
+            // 高亮获胜连线
+            if (game.winLine && game.winLine.length > 0) {
+                game.winLine.forEach(({row, col}) => {
+                    const x = col*cellSize+cellSize/2, y = row*cellSize+cellSize/2;
+                    ctx.beginPath();
+                    ctx.arc(x, y, cellSize/2-1, 0, 2*Math.PI);
+                    ctx.fillStyle = 'rgba(255,215,0,0.6)';
+                    ctx.fill();
+                });
+            }
+
+            // 标记最后一手
+            if (game.lastMove) {
+                const {row, col} = game.lastMove;
+                const x = col*cellSize+cellSize/2, y = row*cellSize+cellSize/2;
+                ctx.beginPath();
+                ctx.arc(x, y, 3, 0, 2*Math.PI);
+                ctx.fillStyle = '#FFD700';
+                ctx.fill();
+            }
+        }
+
+        function drawPiece(row, col, color) {
+            const cellSize = canvas.width/BOARD_SIZE;
+            const x = col*cellSize+cellSize/2, y = row*cellSize+cellSize/2;
+            ctx.beginPath();
+            ctx.arc(x, y, cellSize/2-3, 0, 2*Math.PI);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.strokeStyle = '#666';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(x-3, y-3, 3, 0, 2*Math.PI);
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.fill();
+        }
+
+        async function onStartGame() {
+            const studentId = studentIdInput.value.trim();
+            if (!studentId) return showToast('请输入学号','warning');
+            const student = students.find(s=>s.id===studentId);
+            if (!student) return showToast('学号不存在','error');
+            weekWinCount = await loadWeekWinCount(studentId);
+            updateWeekWinDisplay();
+            const confirmed = await showConfirmModal(student, weekWinCount);
+            if (!confirmed) return;
+            currentStudentId = studentId;
+            startCountdown(3, () => {
+                startNewGame();
+            });
+        }
+
+        function startNewGame() {
+            game.reset();
+            gameActive = true; gameOver = false;
+            const playerFirst = Math.random()<0.5;
+            if (playerFirst) {
+                playerColor='black'; aiColor='white'; currentTurn='player';
+                firstPlayerDisplay.innerText = '玩家 (黑棋)';
+                gameStatusDisplay.innerText = '你的回合';
+            } else {
+                playerColor='white'; aiColor='black'; currentTurn='ai';
+                firstPlayerDisplay.innerText = 'AI (黑棋)';
+                gameStatusDisplay.innerText = 'AI 思考中...';
+                setTimeout(()=>aiMove(),300);
+            }
+            drawBoard();
+            updateMoveCount();
+            startTimer();
+            startGameBtn.disabled = true;
+            restartBtn.disabled = surrenderBtn.disabled = false;
+        }
+
+        function handleCanvasClick(e) {
+            if (!gameActive || currentTurn!=='player' || gameOver) return;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width/rect.width, scaleY = canvas.height/rect.height;
+            const cellSize = canvas.width/BOARD_SIZE;
+            const col = Math.floor(((e.clientX-rect.left)*scaleX)/cellSize);
+            const row = Math.floor(((e.clientY-rect.top)*scaleY)/cellSize);
+            if (row<0||row>=BOARD_SIZE||col<0||col>=BOARD_SIZE) return;
+            const playerIdx = playerColor==='black'?0:1;
+            if (!game.setChess(row, col, playerIdx)) { showToast('此处不能落子','warning'); return; }
+            updateMoveCount();
+            drawBoard();
+            if (game.getWinner()===playerIdx) { handleGameEnd('player'); return; }
+            if (game.isDraw()) { handleGameEnd('draw'); return; }
+            currentTurn = 'ai';
+            gameStatusDisplay.innerText = 'AI 思考中...';
+            setTimeout(()=>aiMove(),200);
+        }
+
+        function aiMove() {
+            if (!gameActive || currentTurn!=='ai' || gameOver) return;
+            const aiIdx = aiColor==='black'?0:1;
+            const best = getBestMove(aiIdx);
+            if (!best) {
+                if (game.isDraw()) handleGameEnd('draw');
+                else { gameActive=false; gameOver=true; gameStatusDisplay.innerText='平局'; showToast('平局！','info'); }
+                return;
+            }
+            game.setChess(best.row, best.col, aiIdx);
+            updateMoveCount();
+            drawBoard();
+            if (game.getWinner()===aiIdx) { handleGameEnd('ai'); return; }
+            if (game.isDraw()) { handleGameEnd('draw'); return; }
+            currentTurn = 'player';
+            gameStatusDisplay.innerText = '你的回合';
+        }
+
+        function getBestMove(aiIdx) {
+            const diff = difficultySelect.value;
+            const playerIdx = aiIdx===0?1:0;
+            let maxScore = -Infinity, best = null;
+            for (let r=0; r<BOARD_SIZE; r++) {
+                for (let c=0; c<BOARD_SIZE; c++) {
+                    if (game.board[r][c]!==null) continue;
+                    let aiS = evaluatePosition(r,c,aiIdx);
+                    let plS = evaluatePosition(r,c,playerIdx);
+                    let [aw, dw, rf] = diff==='easy'?[0.8,0.5,20] : (diff==='normal'?[1.0,1.2,5] : [1.2,1.8,0]);
+                    let total = aiS*aw + plS*dw + (BOARD_SIZE - (Math.abs(r-BOARD_SIZE/2)+Math.abs(c-BOARD_SIZE/2)))*0.3 + Math.random()*rf;
+                    if (total>maxScore) { maxScore=total; best={row:r, col:c}; }
+                }
+            }
+            return best;
+        }
+
+        function evaluatePosition(row, col, colorIdx) {
+            let score=0;
+            const dirs=[[1,0],[0,1],[1,1],[1,-1]];
+            for (let [dx,dy] of dirs) {
+                let cnt=1, openL=0, openR=0;
+                for (let s=1; s<WIN_CONDITION; s++) {
+                    const nr=row+dx*s, nc=col+dy*s;
+                    if (nr<0||nr>=BOARD_SIZE||nc<0||nc>=BOARD_SIZE) break;
+                    const p = game.board[nr][nc];
+                    if (p===colorIdx) cnt++;
+                    else if (p===null) { openR++; break; }
+                    else break;
+                }
+                for (let s=1; s<WIN_CONDITION; s++) {
+                    const nr=row-dx*s, nc=col-dy*s;
+                    if (nr<0||nr>=BOARD_SIZE||nc<0||nc>=BOARD_SIZE) break;
+                    const p = game.board[nr][nc];
+                    if (p===colorIdx) cnt++;
+                    else if (p===null) { openL++; break; }
+                    else break;
+                }
+                const openEnds = openL+openR;
+                if (cnt>=WIN_CONDITION) score+=100000;
+                else if (cnt===4) score+= openEnds>0?10000:1000;
+                else if (cnt===3) score+= openEnds>=2?5000:800;
+                else if (cnt===2) score+= openEnds>=2?500:100;
+                else if (cnt===1) score+=10;
+            }
+            return score;
+        }
+
+        function handleGameEnd(result) {
+            gameActive = false; gameOver = true;
+            stopTimer();
+            if (result==='player') {
+                gameStatusDisplay.innerText = '🎉 你赢了！';
+                showToast('恭喜你战胜了AI！','success');
+                awardExperience();
+            } else if (result==='ai') {
+                gameStatusDisplay.innerText = '😢 AI赢了';
+                showToast('AI获胜','error');
+            } else {
+                gameStatusDisplay.innerText = '🤝 平局';
+                showToast('平局','info');
+            }
+            drawBoard(); // 重新绘制以显示高亮
+            startGameBtn.disabled = false;
+        }
+
+        async function awardExperience() {
+            if (!currentStudentId) return;
+            const difficulty = difficultySelect.value;
+            try {
+                const res = await fetch('/api/play/win', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({
+                        username: currentUser.username,
+                        student_id: currentStudentId,
+                        difficulty: difficulty,
+                        game_type: 'gomoku'
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    weekWinCount = data.weekly_wins;
+                    updateWeekWinDisplay();
+                    const expMap = { easy: '0.3', normal: '0.4', hard: '0.5' };
+                    showToast(`经验 +${expMap[difficulty]} 级！当前等级 Lv ${data.new_level}，本周剩余 ${MAX_WEEK_WINS - weekWinCount} 次`, 'success');
+                    await loadStudents();
+                } else showToast(data.msg, 'error');
+            } catch(e) { showToast('网络错误','error'); }
+        }
+
+        function surrender() {
+            if (!gameActive || gameOver) return;
+            gameActive = false; gameOver = true;
+            stopTimer();
+            gameStatusDisplay.innerText = '你认输了';
+            showToast('你认输了','info');
+            startGameBtn.disabled = false;
+        }
+
+        function showToast(msg, type='info') {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.style.backgroundColor = type==='success'?'#10b981': type==='error'?'#ef4444': type==='warning'?'#f59e0b':'#1e293b';
+            toast.innerText = msg;
+            toastContainer.appendChild(toast);
+            setTimeout(()=>toast.remove(), 3000);
+        }
+
+        function showConfirmModal(student, wins) {
+            return new Promise(resolve => {
+                const overlay = document.createElement('div');
+                overlay.className = 'modal-overlay';
+                overlay.innerHTML = `
+                    <div class="modal-content">
+                        <h3 class="text-lg font-bold mb-3">确认开始对局</h3>
+                        <div class="space-y-2 text-sm">
+                            <p><span class="text-gray-600">学号：</span><strong>${student.id}</strong></p>
+                            <p><span class="text-gray-600">姓名：</span><strong>${student.name}</strong></p>
+                            <p><span class="text-gray-600">当前等级：</span><span class="font-bold text-blue-600">Lv ${student.level}</span></p>
+                            <p><span class="text-gray-600">本周已胜利：</span><span class="font-bold ${wins>=4?'text-red-500':'text-green-600'}">${wins} / 4</span></p>
+                        </div>
+                        ${wins>=4?'<p class="text-red-500 text-sm mt-3">本周奖励次数已用完，胜利后无法获得经验。</p>':''}
+                        <div class="flex justify-end gap-2 mt-5">
+                            <button class="cancel-btn px-4 py-2 bg-gray-200 rounded-lg">取消</button>
+                            <button class="confirm-btn px-4 py-2 bg-blue-600 text-white rounded-lg">确认开始</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+                overlay.querySelector('.cancel-btn').onclick = () => { overlay.remove(); resolve(false); };
+                overlay.querySelector('.confirm-btn').onclick = () => { overlay.remove(); resolve(true); };
+                overlay.onclick = (e) => { if(e.target===overlay) { overlay.remove(); resolve(false); } };
+            });
+        }
+
+        initLoading();
+    })();
+</script>
+</body>
+</html>

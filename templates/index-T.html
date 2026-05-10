@@ -1,0 +1,3269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Class Score</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+
+    <!-- ========== 本地资源 ========== -->
+    <!-- Tailwind CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <!-- Chart.js -->
+    <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+	<!-- Markdown 解析库 -->
+	<script src="{{ url_for('static', filename='js/marked.min.js') }}"></script>
+
+    
+    <!-- 合并的样式（原版工具类 + 重构版自定义样式） -->
+    
+    <!-- 重构版自定义样式 + 原版隐形窗口修复样式 -->
+    <style>
+		#rollingStudentCard {
+		    transition: transform 1s ease-in-out, opacity 1s ease-in-out;
+		}
+		#scoreCardCarousel {
+		    transition: opacity 0.4s ease-in-out;
+		    opacity: 1;
+		}
+        /* 原版：隐形窗口遮挡修复 */
+        .modal-backdrop.opacity-0 {
+            pointer-events: none;
+        }
+        .modal-backdrop:not(.opacity-0) {
+            pointer-events: auto;
+        }
+        
+        /* 重构版：自定义滚动条及杂项 */
+        .scrollable-x {
+		    overflow-x: auto;
+		    overflow-y: hidden;
+		    white-space: nowrap;
+		    -webkit-overflow-scrolling: touch;
+		    scrollbar-width: thin;
+		    max-width: 100%;          /* 确保不超过父容器 */
+		    width: 100%;
+		    min-height: 260px;        /* 给滚动条留出空间 */
+		    border: 1px solid #e5e7eb; /* 可选，便于观察边界 */
+		}
+        .scrollable-x canvas {
+            display: inline-block;
+            width: auto;
+            height: 100%;
+        }
+        .log-table tr {
+            transition: background-color 0.2s;
+        }
+        .log-table tr:hover {
+            background-color: #f3f4f6;
+        }
+        .tooltip-cell {
+            position: relative;
+            cursor: help;
+        }
+        .tooltip-cell:hover::after {
+            content: attr(data-full);
+            position: absolute;
+            background: #1e293b;
+            color: white;
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            border-radius: 4px;
+            bottom: 100%;
+            left: 0;
+            white-space: pre-wrap;
+            z-index: 60;
+            min-width: 200px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+        }
+        /* 锁定状态遮罩指示 */
+        .locked-overlay {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+        .i-button {
+        	z-index: 99999999 !important;
+		    position: relative !important; 
+		    width: 48px;
+		    height: 48px;
+		    border-radius: 9999px;
+		    background: #3b82f6;
+		    color: white;
+		    display: flex;
+		    align-items: center;
+		    justify-content: center;
+		    font-size: 24px;
+		    font-weight: bold;
+		    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3);
+		    cursor: pointer;
+		    transition: transform 0.2s;
+		    position: relative;   /* 新增 */
+		    z-index: 1;           /* 新增 */
+		}
+        .i-button:hover {
+            transform: scale(1.1);
+            background: #2563eb;
+        }
+        .about-card {
+            background: linear-gradient(145deg, #ffffff, #f0f4ff);
+            border: 1px solid #cbd5e1;
+        }
+        /* 自定义颜色类 */
+	    .bg-primary { background-color: #3b82f6; }
+	    .bg-secondary { background-color: #64748b; }
+	    .bg-success { background-color: #22c55e; }
+	    .bg-danger { background-color: #ef4444; }
+	    .bg-warning { background-color: #f59e0b; }
+	    .bg-info { background-color: #0ea5e9; }
+	    .text-primary { color: #3b82f6; }
+	    .text-secondary { color: #64748b; }
+	    .text-success { color: #22c55e; }
+	    .text-danger { color: #ef4444; }
+	    .text-warning { color: #f59e0b; }
+	    .text-info { color: #0ea5e9; }
+	    .border-primary { border-color: #3b82f6; }
+	    /* ===== 按钮基础样式 ===== */
+		.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-warning, .btn-info {
+		    display: inline-block;
+		    font-weight: 400;
+		    text-align: center;
+		    white-space: nowrap;
+		    vertical-align: middle;
+		    user-select: none;
+		    border: 1px solid transparent;
+		    padding: 0.5rem 1rem;        /* 对应 px-4 py-2 */
+		    font-size: 1rem;
+		    line-height: 1.5;
+		    border-radius: 0.375rem;      /* 对应 rounded-md (0.375rem) */
+		    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+		}
+		
+		/* 各按钮颜色（使用之前定义的颜色类） */
+		.btn-primary {
+		    background-color: #3b82f6;    /* bg-primary */
+		    color: white;
+		}
+		.btn-primary:hover {
+		    background-color: #2563eb;     /* hover:bg-blue-600 */
+		}
+		
+		.btn-secondary {
+		    background-color: #64748b;    /* bg-secondary */
+		    color: white;
+		}
+		.btn-secondary:hover {
+		    background-color: #475569;     /* hover:bg-slate-600 */
+		}
+		
+		.btn-success {
+		    background-color: #22c55e;    /* bg-success */
+		    color: white;
+		}
+		.btn-success:hover {
+		    background-color: #16a34a;     /* hover:bg-green-600 */
+		}
+		
+		.btn-danger {
+		    background-color: #ef4444;    /* bg-danger */
+		    color: white;
+		}
+		.btn-danger:hover {
+		    background-color: #dc2626;     /* hover:bg-red-600 */
+		}
+		
+		.btn-warning {
+		    background-color: #f59e0b;    /* bg-warning */
+		    color: white;
+		}
+		.btn-warning:hover {
+		    background-color: #d97706;     /* hover:bg-amber-600 */
+		}
+		
+		.btn-info {
+		    background-color: #0ea5e9;    /* bg-info */
+		    color: white;
+		}
+		.btn-info:hover {
+		    background-color: #0284c7;     /* hover:bg-blue-500 (与原信息按钮一致) */
+		}
+		
+		/* 为按钮添加 focus 样式（可选） */
+		.btn-primary:focus, .btn-secondary:focus, .btn-success:focus, .btn-danger:focus, .btn-warning:focus, .btn-info:focus {
+		    outline: none;
+		    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); /* 蓝色 focus ring */
+		}
+		/* 卡片悬停效果 */
+		.card-hover {
+		    transition: all 0.3s;
+		}
+		.card-hover:hover {
+		    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+		    transform: scale(1.02);
+		}
+		
+		/* 输入框样式 */
+		.input-field {
+		    width: 100%;
+		    padding: 0.5rem 1rem;
+		    border: 1px solid #d1d5db; /* border-gray-300 */
+		    border-radius: 0.375rem;
+		    outline: none;
+		    transition: all 0.3s;
+		}
+		.input-field:focus {
+		    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); /* 模拟 focus:ring-2 ring-primary */
+		    border-color: transparent;
+		}
+		
+		/* 标签页样式 */
+		.tab-active {
+		    border-bottom: 2px solid #3b82f6; /* border-primary */
+		    color: #3b82f6; /* text-primary */
+		}
+		.tab-inactive {
+		    color: #6b7280; /* text-gray-500 */
+		}
+		.tab-inactive:hover {
+		    color: #374151; /* text-gray-700 */
+		}
+		
+		/* 如果需要，可以补充正负分颜色（如果 Tailwind 默认未包含） */
+		.text-green-600 { color: #16a34a; }
+		.text-red-600 { color: #dc2626; }
+		.border-green-400 { border-color: #4ade80; }
+		.border-red-400 { border-color: #f87171; }
+		/* 补充缺失的 Tailwind 工具类 */
+		.fixed {
+		    position: fixed;
+		}
+		.inset-0 {
+		    top: 0;
+		    right: 0;
+		    bottom: 0;
+		    left: 0;
+		}
+		/* 模态框背景色（使用 rgba 直接定义，避免依赖 bg-opacity） */
+		.modal-backdrop {
+		    background-color: rgba(0, 0, 0, 0.5);
+		}
+		/* 如果还有透明度控制类 */
+		.opacity-0 {
+		    opacity: 0;
+		}
+		.opacity-100 {
+		    opacity: 1;
+		}
+		/* 确保模态框内容居中（您的样式已有） */
+		.modal-content {
+		    background-color: white;
+		    border-radius: 0.5rem;
+		    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+		    max-width: 28rem; /* max-w-md */
+		    width: 100%;
+		    margin: 0 1rem;
+		}
+		.modal-backdrop {
+		    position: fixed;
+		    top: 0;
+		    left: 0;
+		    right: 0;
+		    bottom: 0;
+		    background-color: rgba(0, 0, 0, 0.5);
+		    display: flex;
+		    align-items: center;
+		    justify-content: center;
+		    z-index: 50;
+		    transition: opacity 0.3s;
+		}
+		/* 强制按钮容器及按钮本身位于最顶层 */
+		#buttonContainer {
+		    z-index: 99999999 !important;
+		    position: fixed !important;
+		    bottom: 1.5rem !important;   /* 对应 bottom-6 */
+		    right: 1.5rem !important;    /* 对应 right-6 */
+		    display: flex !important;
+		    flex-direction: row !important;
+		    gap: 0.75rem !important;     /* 对应 gap-3 */
+		}
+		/* 全局公告模态框滚动修复 */
+		#globalAnnouncementModal .modal-content {
+		    max-height: 90vh;
+		    display: flex;
+		    flex-direction: column;
+		    overflow: hidden;
+		}
+		
+		#globalAnnouncementModal .modal-content .grid {
+		    flex: 1;
+		    min-height: 0;
+		    overflow: hidden;
+		}
+		
+		#globalAnnouncementModal .modal-content .grid > div {
+		    display: flex;
+		    flex-direction: column;
+		    min-height: 0;
+		    overflow: hidden;
+		}
+		
+		#globalAnnouncementDisplay,
+		#globalAnnouncementHistory,
+		#globalAnnouncementPreview {
+		    overflow-y: auto !important;
+		    flex: 1;
+		    min-height: 0;
+		    -webkit-overflow-scrolling: touch;
+		}
+		
+		#globalAnnouncementEditArea {
+		    overflow: hidden;
+		    display: flex;
+		    flex-direction: column;
+		    min-height: 0;
+		}
+		
+		#globalAnnouncementEditor {
+		    flex: 1;
+		    resize: vertical;
+		}
+		
+		#globalAnnouncementToolbar {
+		    flex-shrink: 0;
+		}
+		
+		@media (max-width: 768px) {
+		    #globalAnnouncementModal .modal-content {
+		        max-height: 95vh;
+		        padding: 1rem;
+		    }
+		    #globalAnnouncementModal .grid {
+		        gap: 0.75rem;
+		    }
+		}
+		/* 全局公告模态框宽度自适应 */
+		#globalAnnouncementModal .modal-content {
+		    width: calc(100% - 2rem);   /* 默认左右各留1rem间隙 */
+		    max-width: 56rem;           /* 超大屏幕限制最大宽度，避免过宽 */
+		    margin-left: auto;
+		    margin-right: auto;
+		}
+		
+		/* 小屏（≥640px）时宽度稍大，仍留边距 */
+		@media (min-width: 640px) {
+		    #globalAnnouncementModal .modal-content {
+		        width: 90%;
+		        max-width: 64rem;
+		    }
+		}
+		
+		/* 大屏（≥1024px）时宽度占70%，更加舒适 */
+		@media (min-width: 1024px) {
+		    #globalAnnouncementModal .modal-content {
+		        width: 70%;
+		        max-width: 72rem;
+		    }
+		}
+		/* 自定义开关样式，不依赖 Tailwind peer */
+		.toggle-checkbox:checked + .toggle-label {
+		    background-color: #3b82f6;
+		}
+		.toggle-checkbox:checked + .toggle-label::after {
+		    transform: translateX(100%);
+		    border-color: white;
+		}
+		.toggle-label {
+		    display: block;
+		    width: 44px;
+		    height: 24px;
+		    background-color: #e5e7eb;
+		    border-radius: 999px;
+		    position: relative;
+		    cursor: pointer;
+		    transition: background-color 0.2s;
+		}
+		.toggle-label::after {
+		    content: '';
+		    position: absolute;
+		    top: 2px;
+		    left: 2px;
+		    width: 20px;
+		    height: 20px;
+		    background-color: white;
+		    border: 1px solid #d1d5db;
+		    border-radius: 50%;
+		    transition: transform 0.2s;
+		}
+		#toastContainer {
+		    z-index: 2147483647 !important;  /* 最大安全整数值 */
+		    isolation: isolate !important;    /* 强制创建独立层叠上下文，避免外部干扰 */
+		}
+		/* 经验进度条 */
+		.exp-bar-container {
+		    width: 100%;
+		    height: 6px;
+		    background-color: #e5e7eb;
+		    border-radius: 9999px;
+		    margin-top: 10px;
+		}
+		.exp-bar-fill {
+		    height: 100%;
+		    background: linear-gradient(90deg, #10b981, #34d399);
+		    border-radius: 9999px;
+		    width: 0%;
+		    transition: width 0.3s ease;
+		}
+		.exp-text {
+		    font-size: 0.7rem;
+		    color: #6b7280;
+		    margin-top: 4px;
+		    text-align: right;
+		}
+		
+		/* 注释悬浮框丝滑移动 */
+		#noteTooltip {
+		    position: fixed;
+		    top: 0;
+		    left: 0;
+		    will-change: transform;
+		    pointer-events: none;
+		    z-index: 1000;
+		    background-color: rgba(0,0,0,0.8);
+		    color: white;
+		    border-radius: 8px;
+		    padding: 12px;
+		    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+		    max-width: 300px;
+		    /* 移除 transition，由 RAF 控制 */
+		}
+    </style>
+</head>
+
+<body class="bg-gray-100 min-h-screen font-sans antialiased" data-locked="true">
+    <!-- 重构版：关于按钮 -->
+	<!-- 按钮容器（垂直排列） -->
+	<div class="fixed bottom-6 right-6 flex flex-row gap-3 z-[9999999]" id="buttonContainer">
+	    <div class="i-button" id="globalAnnouncementBtn" title="全局公告">📢</div>
+	    <div class="i-button" id="aboutButton" title="关于本系统">i</div>
+	    <div class="i-button" id="randomButton" title="随机学生">RD</div>
+	</div>
+	<!-- Toast 容器（独立固定定位，初始隐藏） -->
+	<div id="toastContainer" class="fixed flex flex-col-reverse gap-2 z-[200] pointer-events-none" style="display: none;"></div>
+    <!-- 重构版：关于模态框 -->
+    <div id="aboutModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden transition-opacity duration-300 opacity-0" style="backdrop-filter: blur(2px); z-index: 999999 !important;">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 p-6 border border-blue-200 about-card">
+            <div class="flex justify-between items-start mb-4">
+                <h2 class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-700 to-purple-700">✨ 像素创梦™ · 融合版</h2>
+                <button id="closeAbout" class="text-gray-500 hover:text-gray-800 text-2xl leading-5">&times;</button>
+            </div>
+            <div class="space-y-3 text-gray-700">
+                <p class="flex items-center gap-2"><span class="text-blue-600 text-lg">🎯</span> <span class="font-semibold">最终归属团队：</span>像素创梦™</p>
+                <p class="flex items-center gap-2"><span class="text-blue-600 text-lg">👨‍💻</span> <span class="font-semibold">研发：</span>易思宸 <span class="text-sm text-gray-500">(主程)</span>  ·  曾梓轩 <span class="text-sm text-gray-500">(辅助)</span></p>
+                <p class="flex items-center gap-2"><span class="text-blue-600 text-lg">🧪</span> <span class="font-semibold">当前版本：</span>融合版 <span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-sm">Merge V21.2</span></p>
+                <p class="flex items-center gap-2"><span class="text-blue-600 text-lg">⚙️</span> <span class="font-semibold">技术栈(使用过的技术)：</span>CSS · Tailwind · TCP-Python (端口5000) · DeepSeek · 豆包 · Cloudflare · PYTHON/HTML · SakuraFRP</p>
+                <div class="border-t border-dashed my-2"></div>
+                <p class="text-sm text-amber-700 bg-amber-50 p-3 rounded-lg">🔔 若无法访问API，自动切换本地存储模式。本地面板完全可用。</p>
+                <p class="text-xs text-gray-400 mt-2">© 2025 像素创梦 · 保留所有想象</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主容器（整合原版+重构版结构） -->
+    <div class="container mx-auto px-4 py-6 max-w-7xl relative" id="appContainer">
+        <!-- 重构版：顶栏（班级名称 + 用户信息 + 锁定状态） -->
+        <div class="flex flex-wrap items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+                <h1 class="text-3xl font-extrabold text-gray-800" id="classNameDisplay">🏫 银河一班</h1>
+                <span id="lockStatusBadge" class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-700 font-semibold">🔒 已锁定</span>
+            </div>
+            <div class="flex items-center gap-3" id="userAuthSection">
+                <div id="userInfo" class="hidden items-center gap-2">
+                    <span class="text-sm text-gray-600">👋 <span id="currentUsername"></span></span>
+                    <button id="logoutBtn" class="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded">退出</button>
+                </div>
+                <div id="loginButtons" class="flex gap-2">
+                    <button id="loginBtn" class="text-sm bg-primary text-white px-4 py-1.5 rounded hover:bg-blue-600">登录</button>
+                    <button id="registerBtn" class="text-sm bg-secondary text-white px-4 py-1.5 rounded hover:bg-slate-600">注册</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 重构版：主功能栏（支付/添加积分 + 锁定控制） -->
+        <div class="bg-white p-4 rounded-xl shadow-sm mb-6 flex flex-wrap items-center gap-4">
+            <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-gray-600">操作区：</span>
+                <button id="payBtn" class="btn-success text-sm py-2"><i class="fa fa-credit-card mr-1"></i>支付 (扣正分)</button>
+                <button id="addPointsBtn" class="btn-primary text-sm py-2"><i class="fa fa-plus-circle mr-1"></i>添加积分</button>
+                <!-- 在操作区添加两个按钮（受锁定控制） -->
+				<button id="addNoteBtn" class="btn-info text-sm py-2"><i class="fa fa-sticky-note mr-1"></i>添加学生注释</button>
+				<button id="deleteNoteBtn" class="btn-warning text-sm py-2"><i class="fa fa-trash mr-1"></i>删除学生注释</button>
+            </div>
+            <div class="flex items-center gap-2 ml-auto">
+                <span class="text-sm text-gray-500">锁定控制：</span>
+                <button id="unlockBtn" class="btn-warning text-sm py-1.5"><i class="fa fa-unlock-alt mr-1"></i>解锁</button>
+                <button id="lockBtn" class="btn-secondary text-sm py-1.5"><i class="fa fa-lock mr-1"></i>锁定</button>
+            </div>
+        </div>
+
+        <!-- 整合版：选项卡导航（原版4个 + 重构版日志/设置） -->
+        <div class="border-b border-gray-300 mb-6 overflow-x-auto whitespace-nowrap pb-1">
+            <ul class="flex gap-2 text-sm font-medium" id="tabNav">
+			    <li><button class="tab-active px-4 py-2" data-tab="home">🏠 主页</button></li>
+			    <li><button class="tab-inactive px-4 py-2" data-tab="total-rank">🏆 总排名</button></li>
+			    <li><button class="tab-inactive px-4 py-2" data-tab="positive-rank">➕ 正分排名</button></li>
+			    <li><button class="tab-inactive px-4 py-2" data-tab="negative-rank">➖ 负分榜</button></li>
+			    <li><button class="tab-inactive px-4 py-2" data-tab="all-students">📋 全部学生(表)</button></li>
+			    <li><button class="tab-inactive px-4 py-2" data-tab="log-tab">📜 logs</button></li>
+				<li><button class="tab-inactive px-4 py-2" data-tab="playground-tab">🎮 功能区</button></li>
+			    <li><button class="tab-inactive px-4 py-2" data-tab="settings-tab">⚙️ 设置</button></li>
+			</ul>
+        </div>
+
+        <!-- 选项卡内容区域（整合所有功能） -->
+        <div id="tabContent" class="min-h-[400px]">
+        	<!-- 主页面板 -->
+			<div class="tab-pane active" id="home">
+			    <!-- 公告区域 -->
+			    <div class="bg-white rounded-lg shadow p-5 mb-6">
+			        <h3 class="text-lg font-semibold mb-3">📢 公告</h3>
+			        <div id="announcementContent" class="text-gray-700 min-h-[60px]">
+			            <!-- 动态加载公告内容 -->
+			        </div>
+			    </div>
+			
+			    <!-- 查询区域 -->
+			    <div class="bg-white rounded-lg shadow p-5 mb-6">
+			        <h3 class="text-lg font-semibold mb-3">🔍 学生查询</h3>
+			        <div class="flex gap-2 max-w-md">
+			            <input type="text" id="homeSearchInput" placeholder="请输入学号查询" class="input-field flex-grow">
+			            <button id="homeSearchBtn" class="btn-secondary whitespace-nowrap">
+			                <i class="fa fa-search mr-2"></i>查询
+			            </button>
+			        </div>
+			    </div>
+			
+			    <!-- 分数卡片滚动区域 -->
+			    <div class="bg-white rounded-lg shadow p-5 mb-6">
+			        <h3 class="text-lg font-semibold mb-3">🎴 各个学生的分数情况</h3>
+			        <div id="scoreCardCarousel" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 min-h-[200px]">
+			            <!-- 动态生成三个卡片 -->
+			        </div>
+			    </div>
+			
+			    <!-- 统计区域（原全局统计） -->
+			    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+			        <!-- 学生积分 - 柱状图轮播 -->
+					<div class="bg-white p-5 rounded-lg shadow">
+					    <h3 class="text-lg font-semibold mb-3">📊 学生积分</h3>
+					    <div class="relative h-[260px] w-full">
+					        <canvas id="studentChartCanvas"></canvas>
+					    </div>
+					</div>
+			        <!-- 班级统计 -->
+			        <div class="bg-white p-5 rounded-lg shadow">
+			            <h3 class="text-lg font-semibold mb-3">📈 班级统计</h3>
+			            <div class="grid grid-cols-2 gap-3">
+			                <div class="bg-blue-50 p-3 rounded text-center"><span class="text-xs text-gray-500">学生总数</span><p id="totalStudents" class="text-2xl font-bold text-primary">0</p></div>
+			                <div class="bg-green-50 p-3 rounded text-center"><span class="text-xs text-gray-500">正分学生</span><p id="positiveStudents" class="text-2xl font-bold text-success">0</p></div>
+			                <div class="bg-red-50 p-3 rounded text-center"><span class="text-xs text-gray-500">负分学生</span><p id="negativeStudents" class="text-2xl font-bold text-danger">0</p></div>
+			                <div class="bg-amber-50 p-3 rounded text-center"><span class="text-xs text-gray-500">平均总分</span><p id="averageScore" class="text-2xl font-bold text-warning">0</p></div>
+			            </div>
+			        </div>
+			    </div>
+			</div>
+            <!-- 原版：总排名（卡片模式） -->
+            <div class="tab-pane hidden" id="total-rank">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5" id="totalRankContainer"></div>
+            </div>
+            <div class="tab-pane hidden" id="positive-rank">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5" id="positiveRankContainer"></div>
+            </div>
+            <div class="tab-pane hidden" id="negative-rank">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5" id="negativeRankContainer"></div>
+            </div>
+            
+            <!-- 重构版：全部学生（表格模式） -->
+            <div class="tab-pane hidden" id="all-students">
+                <div class="bg-white rounded-lg shadow overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200" id="studentTable">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">学号</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">姓名</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">正分</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">负分</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">总分</th>
+                            </tr>
+                        </thead>
+                        <tbody id="studentTableBody" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- 重构版：日志页 -->
+            <div class="tab-pane hidden" id="log-tab">
+                <div class="bg-white rounded-lg shadow p-4">
+                    <div class="flex justify-between items-center mb-3">
+					    <h3 class="text-lg font-semibold">📋 System Logs</h3>
+					    <div>
+					        <button id="exportLogsBtn" class="btn-secondary text-sm"><i class="fa fa-download"></i> Export Stack</button>
+					        <button id="clearLogsBtn" class="btn-danger text-sm ml-2"><i class="fa fa-trash"></i> 清空日志</button>
+					    </div>
+					</div>
+                    <div class="overflow-x-auto max-h-96 border rounded">
+                        <table class="min-w-full text-sm log-table" id="logTable">
+                            <thead class="bg-gray-100 sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-2 text-left">Time</th>
+                                    <th class="px-4 py-2 text-left">Level</th>
+                                    <th class="px-4 py-2 text-left">Action</th>
+                                    <th class="px-4 py-2 text-left">Details</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <!-- 功能区面板 -->
+			<div class="tab-pane hidden" id="playground-tab">
+				<div class="bg-white rounded-lg shadow p-6">
+					<h3 class="text-xl font-bold mb-4">🎮 功能入口</h3>
+					<div class="flex flex-wrap gap-4">
+						<button id="goToPlayModeBtn" class="btn-primary text-lg px-6 py-3">
+							<i class="fa fa-gamepad mr-2"></i>前往玩法模式
+						</button>
+						<button id="goToJiezhiSpaceBtn" class="btn-info text-lg px-6 py-3">
+							<i class="fa fa-globe mr-2"></i>节枝的空间
+						</button>
+					</div>
+					<p class="text-gray-500 mt-4 text-sm">更多功能开发中，敬请期待！</p>
+				</div>
+			</div>
+            <!-- 重构版：设置页 -->
+            <div class="tab-pane hidden" id="settings-tab">
+                <div class="bg-white rounded-lg shadow p-5" id="settingsPanel">
+                    <div id="settingsPasswordWrap" class="max-w-md mx-auto">
+                        <div class="text-center mb-4 text-gray-600">⚙️ 设置页需要当前账号密码验证</div>
+                        <div class="flex gap-2">
+                            <input type="password" id="settingsPasswordInput" placeholder="输入密码" class="input-field">
+                            <button id="verifySettingsBtn" class="btn-primary whitespace-nowrap">验证</button>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-2">默认密码: 123456 (当前登录用户)</p>
+                    </div>
+                    <div id="settingsContent" class="hidden space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="border rounded-lg p-4">
+                            	<!-- 全局公告管理（仅管理员可见） -->
+								<div class="border rounded-lg p-4" id="globalAnnouncementSettingsSection" style="display: none;">
+								    <h4 class="font-bold mb-3">🌐 全局公告管理</h4>
+								    <p class="text-sm text-gray-600 mb-2">当前全局公告内容：</p>
+								    <div id="globalAnnouncementPreviewSettings" class="bg-gray-50 p-2 rounded text-sm max-h-32 overflow-y-auto mb-2"></div>
+								    <button id="editGlobalAnnouncementFromSettings" class="btn-info text-sm">编辑全局公告</button>
+								</div>
+								<!-- 玩法大厅开关管理（仅超级管理员可见） -->
+								<div class="border rounded-lg p-4 mt-4" id="playConfigSection" style="display: none;">
+								    <h4 class="font-bold mb-3">🎮 玩法大厅控制</h4>
+								    <div class="flex items-center justify-between">
+								        <span class="text-sm text-gray-700">启用玩法大厅</span>
+								        <label class="relative inline-flex items-center cursor-pointer">
+										    <input type="checkbox" id="playConfigToggle" class="toggle-checkbox sr-only">
+										    <span class="toggle-label"></span>
+										</label>
+								    </div>
+								    <p class="text-xs text-gray-400 mt-2">关闭后，所有用户将无法进入玩法大厅。</p>
+								</div>
+                                <h4 class="font-bold mb-3">📌 账号/班级设置</h4>
+                                <div class="space-y-3">
+                                    <div><label class="block text-sm">用户名</label><input type="text" id="settingUsername" class="input-field text-sm"></div>
+                                    <div><label class="block text-sm">班级名</label><input type="text" id="settingClassName" class="input-field text-sm"></div>
+                                    <div><label class="block text-sm">新密码(留空不变)</label><input type="password" id="settingNewPwd" class="input-field text-sm" placeholder="新密码"></div>
+                                    <div><label class="block text-sm">确认密码</label><input type="password" id="settingConfirmPwd" class="input-field text-sm"></div>
+									<!-- 新增公告输入框 -->
+									<div><label class="block text-sm">公告</label>
+									    <div class="flex gap-2">
+									        <input type="text" id="settingAnnouncementPreview" class="input-field text-sm flex-1" readonly placeholder="点击编辑公告">
+									        <button id="editClassAnnouncementBtn" class="btn-info text-sm">编辑公告</button>
+									    </div>
+									</div>
+									<button id="updateAccountBtn" class="btn-primary w-full">更新账户信息</button>
+                                </div>
+                            </div>
+                            <div class="border rounded-lg p-4">
+                                <h4 class="font-bold mb-3">🧑‍🎓 学生管理(增/删/调分)</h4>
+                                <div class="space-y-4">
+                                    <div><label class="block text-sm">添加学生</label>
+                                        <div class="flex gap-1 text-sm">
+                                            <input type="text" id="setStudentId" placeholder="学号" class="input-field w-1/3">
+                                            <input type="text" id="setStudentName" placeholder="姓名" class="input-field w-1/3">
+                                            <input type="number" id="setStudentPos" value="0" class="input-field w-1/6">
+                                            <input type="number" id="setStudentNeg" value="0" class="input-field w-1/6">
+                                            <button id="adminAddStudent" class="btn-success text-sm px-3">➕</button>
+                                        </div>
+                                    </div>
+                                    <div><label class="block text-sm">删除学生 (学号)</label>
+                                        <div class="flex gap-2">
+                                            <input type="text" id="adminDelId" class="input-field" placeholder="学号">
+                                            <button id="adminDelBtn" class="btn-danger">删除</button>
+                                        </div>
+                                    </div>
+                                    <div><label class="block text-sm">调整学生分数 (充值/扣除合一)</label>
+                                        <div class="grid grid-cols-2 gap-1 text-sm">
+                                            <input type="text" id="adminAdjId" placeholder="学号" class="input-field col-span-2 mb-1">
+                                            <input type="number" id="adminAdjPos" value="0" placeholder="正分变动" class="input-field">
+                                            <input type="number" id="adminAdjNeg" value="0" placeholder="负分变动" class="input-field">
+                                            <button id="adminAdjBtn" class="btn-primary col-span-2 mt-1">确认调整</button>
+                                        </div>
+                                    </div>
+                                    <div class="mt-4 border-t pt-4">
+									    <h5 class="font-semibold mb-2 text-red-600">⚠️ 危险操作</h5>
+									    <button id="clearAllScoresBtn" class="btn-danger text-sm w-full"><i class="fa fa-trash"></i> 清除所有学生积分</button>
+									</div>
+                                    <div class="mt-4 border-t pt-4">
+									    <h5 class="font-semibold mb-2">📦 数据操作</h5>
+									    <div class="flex gap-2">
+									        <button id="exportDataBtn" class="btn-info text-sm flex-1"><i class="fa fa-download"></i> 导出学生数据</button>
+									        <button id="importDataBtn" class="btn-warning text-sm flex-1"><i class="fa fa-upload"></i> 导入学生数据</button>
+									    </div>
+									    <input type="file" id="importFileInput" class="hidden" accept=".json,application/json">
+									</div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 在 settingsContent 的末尾，</div> 之前添加 -->
+						<div id="adminPanel" class="border rounded-lg p-4 hidden">
+						    <h4 class="font-bold mb-3">👑 用户管理</h4>
+						    <div class="overflow-x-auto">
+						        <table class="min-w-full text-sm">
+						            <thead>
+						                <tr><th>用户名</th><th>创建时间</th><th>角色</th><th>密码</th><th>操作</th></tr>
+						            </thead>
+						            <tbody id="userListBody"></tbody>
+						        </table>
+						    </div>
+						</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 原版：操作区域（保留，兼容重构版支付/添加积分） -->
+        <!-- <div class="mt-8 flex flex-wrap gap-4 justify-center">
+            <button id="addStudentBtn" class="btn-primary">
+                <i class="fa fa-user-plus mr-2"></i>添加学生
+            </button>
+            <button id="deleteStudentBtn" class="btn-danger">
+                <i class="fa fa-user-times mr-2"></i>删除学生
+            </button>
+            <button id="addScoreBtn" class="btn-success">
+                <i class="fa fa-plus-circle mr-2"></i>积分充值
+            </button>
+            <button id="reduceScoreBtn" class="btn-warning">
+                <i class="fa fa-minus-circle mr-2"></i>积分扣除
+            </button>
+        </div> -->
+        <!-- 原版：查询区域 -->
+        <!-- <div class="mt-8 max-w-md mx-auto">
+            <div class="flex gap-2">
+                <input type="text" id="searchInput" placeholder="请输入学号查询" class="input-field flex-grow">
+                <button id="searchBtn" class="btn-secondary whitespace-nowrap">
+                    <i class="fa fa-search mr-2"></i>查询
+                </button>
+            </div>
+        </div> -->
+
+        <!-- 整合版：数据统计区域（原版图表 + 重构版滚动优化） -->
+        <!-- <div class="mt-12 grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div class="bg-white p-5 rounded-lg shadow">
+                <h3 class="text-lg font-semibold mb-3">📊 积分分布 (可横向拖动)</h3>
+                <div class="w-full overflow-x-auto border rounded-lg p-2 scrollable-x" id="chartScrollContainer">
+                    <canvas id="scoreDistributionChart" style="height:240px;"></canvas>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-lg shadow">
+                <h3 class="text-lg font-semibold mb-3">📈 班级统计</h3>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-blue-50 p-3 rounded text-center"><span class="text-xs text-gray-500">学生总数</span><p id="totalStudents" class="text-2xl font-bold text-primary">0</p></div>
+                    <div class="bg-green-50 p-3 rounded text-center"><span class="text-xs text-gray-500">正分学生</span><p id="positiveStudents" class="text-2xl font-bold text-success">0</p></div>
+                    <div class="bg-red-50 p-3 rounded text-center"><span class="text-xs text-gray-500">负分学生</span><p id="negativeStudents" class="text-2xl font-bold text-danger">0</p></div>
+                    <div class="bg-amber-50 p-3 rounded text-center"><span class="text-xs text-gray-500">平均总分</span><p id="averageScore" class="text-2xl font-bold text-warning">0</p></div>
+                </div>
+            </div>
+        </div> -->
+    </div>
+
+    <!-- 原版：所有模态框（保留） -->
+    <!-- 添加注释模态框 -->
+	<div id="addNoteModal" class="modal-backdrop hidden opacity-0">
+	    <div class="modal-content p-5">
+	        <h3 class="text-lg font-bold mb-3">添加学生注释</h3>
+	        <div class="space-y-3">
+	            <input type="text" id="noteStudentId" placeholder="学号" class="input-field">
+	            <textarea id="noteContent" placeholder="注释内容" class="input-field" rows="3"></textarea>
+	            <div class="flex justify-end gap-2">
+	                <button class="close-modal btn-secondary">取消</button>
+	                <button id="confirmAddNote" class="btn-primary">确认</button>
+	            </div>
+	        </div>
+	    </div>
+	</div>
+	
+	<!-- 删除注释模态框 -->
+	<div id="deleteNoteModal" class="modal-backdrop hidden opacity-0">
+	    <div class="modal-content p-5">
+	        <h3 class="text-lg font-bold mb-3">删除学生注释</h3>
+	        <div class="space-y-3">
+	            <input type="text" id="delNoteStudentId" placeholder="学号" class="input-field">
+	            <input type="number" id="delNoteNumber" placeholder="注释编号" class="input-field" min="1">
+	            <div class="flex justify-end gap-2">
+	                <button class="close-modal btn-secondary">取消</button>
+	                <button id="confirmDeleteNote" class="btn-danger">删除</button>
+	            </div>
+	        </div>
+	    </div>
+	</div>
+    <div id="addStudentModal" class="modal-backdrop hidden opacity-0">
+        <div class="modal-content p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold">添加学生</h3>
+                <button class="close-modal text-gray-500 hover:text-gray-700">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <form id="addStudentForm">
+                <div class="mb-4">
+                    <label for="studentId" class="block text-gray-700 mb-2">学号</label>
+                    <input type="text" id="studentId" class="input-field" required>
+                </div>
+                <div class="mb-4">
+                    <label for="studentName" class="block text-gray-700 mb-2">姓名</label>
+                    <input type="text" id="studentName" class="input-field" required>
+                </div>
+                <div class="mb-4">
+                    <label for="positiveScore" class="block text-gray-700 mb-2">初始正分</label>
+                    <input type="number" id="positiveScore" class="input-field" value="0" min="0" required>
+                </div>
+                <div class="mb-6">
+                    <label for="negativeScore" class="block text-gray-700 mb-2">初始负分</label>
+                    <input type="number" id="negativeScore" class="input-field" value="0" min="0" required>
+                </div>
+                <div class="flex justify-end gap-3">
+                    <button type="button" class="close-modal btn-secondary">取消</button>
+                    <button type="submit" class="btn-primary">添加</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="deleteStudentModal" class="modal-backdrop hidden opacity-0">
+        <div class="modal-content p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold">删除学生</h3>
+                <button class="close-modal text-gray-500 hover:text-gray-700">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <form id="deleteStudentForm">
+                <div class="mb-6">
+                    <label for="deleteStudentId" class="block text-gray-700 mb-2">学号</label>
+                    <input type="text" id="deleteStudentId" class="input-field" required>
+                </div>
+                <div class="flex justify-end gap-3">
+                    <button type="button" class="close-modal btn-secondary">取消</button>
+                    <button type="submit" class="btn-danger">删除</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="passwordModal" class="modal-backdrop hidden opacity-0">
+        <div class="modal-content p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold">密码验证</h3>
+                <button class="close-modal text-gray-500 hover:text-gray-700">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <form id="passwordForm">
+                <div class="mb-6">
+                    <label for="password" class="block text-gray-700 mb-2">请输入操作密码</label>
+                    <input type="password" id="password" class="input-field" required>
+                    <p class="text-gray-500 text-sm mt-1">默认密码：54321</p>
+                </div>
+                <div class="flex justify-end gap-3">
+                    <button type="button" class="close-modal btn-secondary">取消</button>
+                    <button type="submit" class="btn-primary">确认</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="scoreAdjustModal" class="modal-backdrop hidden opacity-0">
+        <div class="modal-content p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold" id="scoreAdjustTitle">积分调整</h3>
+                <button class="close-modal text-gray-500 hover:text-gray-700">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <form id="scoreAdjustForm">
+                <div class="mb-4">
+                    <label for="adjustStudentId" class="block text-gray-700 mb-2">学号</label>
+                    <input type="text" id="adjustStudentId" class="input-field" required>
+                </div>
+                <div class="mb-4">
+                    <label for="adjustPositiveScore" class="block text-gray-700 mb-2">正分调整</label>
+                    <input type="number" id="adjustPositiveScore" class="input-field" value="0" min="0" required>
+                </div>
+                <div class="mb-6">
+                    <label for="adjustNegativeScore" class="block text-gray-700 mb-2">负分调整</label>
+                    <input type="number" id="adjustNegativeScore" class="input-field" value="0" min="0" required>
+                </div>
+                <div class="flex justify-end gap-3">
+                    <button type="button" class="close-modal btn-secondary">取消</button>
+                    <button type="submit" class="btn-primary">确认</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="searchResultModal" class="modal-backdrop hidden opacity-0">
+        <div class="modal-content p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold">学生信息</h3>
+                <button class="close-modal text-gray-500 hover:text-gray-700">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <div id="searchResultContent">
+                <!-- 查询结果将通过JavaScript动态生成 -->
+            </div>
+            <div class="mt-6 flex justify-end">
+                <button class="close-modal btn-secondary">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loginModal" class="modal-backdrop hidden opacity-0">
+        <div class="modal-content p-5">
+            <h3 class="text-lg font-bold">登录</h3>
+            <input id="loginUsername" class="input-field my-2" placeholder="用户名">
+            <input id="loginPassword" type="password" class="input-field" placeholder="密码">
+            <div class="flex justify-end gap-2 mt-3">
+                <button class="close-modal btn-secondary">取消</button>
+                <button id="loginSubmitBtn" class="btn-primary">登录</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="registerModal" class="modal-backdrop hidden opacity-0">
+        <div class="modal-content p-5">
+            <h3 class="text-lg font-bold">注册</h3>
+            <input id="regUsername" class="input-field my-2" placeholder="用户名">
+            <input id="regPassword" type="password" class="input-field" placeholder="密码">
+            <div class="flex justify-end gap-2 mt-3">
+                <button class="close-modal btn-secondary">取消</button>
+                <button id="registerSubmitBtn" class="btn-primary">注册</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 重构版：新增模态框 -->
+    <div id="genericPasswordModal" class="modal-backdrop hidden opacity-0">
+        <div class="modal-content p-5">
+            <h3 class="text-lg font-bold mb-3" id="genericModalTitle">验证密码</h3>
+            <input type="password" id="genericPassword" class="input-field mb-4" placeholder="输入当前账号密码">
+            <div class="flex justify-end gap-2">
+                <button class="close-modal btn-secondary">取消</button>
+                <button id="genericConfirmBtn" class="btn-primary">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="pointsActionModal" class="modal-backdrop hidden opacity-0">
+	    <div class="modal-content p-5">
+	        <h3 class="text-lg font-bold mb-2" id="pointsActionTitle">支付 (扣正分)</h3>
+	        <div class="space-y-3">
+	            <input type="text" id="actionStudentId" placeholder="学号" class="input-field">
+	            <div id="pointsInputGroup">
+	                <input type="number" id="actionPoints" placeholder="分数" value="1" min="1" class="input-field">
+	            </div>
+	            <div id="extraPosNeg" class="hidden grid grid-cols-2 gap-2">
+	                <input type="number" id="actionPos" placeholder="正分增加" value="0" class="input-field">
+	                <input type="number" id="actionNeg" placeholder="负分增加" value="0" class="input-field">
+	            </div>
+	            <div class="flex justify-end gap-2">
+	                <button class="close-modal btn-secondary">取消</button>
+	                <button id="confirmPointsAction" class="btn-primary">确认</button>
+	            </div>
+	        </div>
+	    </div>
+	</div>
+	<!-- 随机学生模态框 -->
+	<div id="randomStudentModal" class="modal-backdrop hidden opacity-0">
+	    <div class="modal-content p-6">
+	        <div class="flex justify-between items-center mb-4">
+	            <h3 class="text-xl font-semibold">ramdon-students</h3>
+	            <button class="close-modal text-gray-500 hover:text-gray-700">
+	                <i class="fa fa-times"></i>
+	            </button>
+	        </div>
+	        <div id="randomStudentContent" class="min-h-[100px]">
+	            <!-- 动态填充内容 -->
+	        </div>
+	        <div class="mt-6 flex justify-end">
+	            <button class="close-modal btn-secondary">关闭</button>
+	        </div>
+	    </div>
+	</div>
+    <!-- 原版：Toast提示（保留） -->
+    <!-- Toast 容器（多消息叠加） -->
+	<!-- <div id="toastContainer" class="fixed bottom-32 right-4 flex flex-col-reverse gap-2 z-50 pointer-events-none"></div> -->
+	<!-- 浮动注释框 -->
+	<div id="noteTooltip" class="fixed text-white rounded-lg p-3 shadow-xl z-[1000] hidden" style="max-width: 300px; pointer-events: none; transition: opacity 0.1s; background-color: rgba(0,0,0,0.8);">
+	    <div id="noteTooltipContent"></div>
+	</div>
+	<!-- 全局公告模态框 -->
+	<div id="globalAnnouncementModal" class="modal-backdrop hidden opacity-0">
+	    <div class="modal-content w-full max-w-4xl p-5 max-h-[90vh] flex flex-col">
+	        <div class="flex justify-between items-center mb-4 flex-shrink-0">
+	            <h3 class="text-xl font-bold">📢 全局公告</h3>
+	            <button class="close-modal text-gray-500 hover:text-gray-700">&times;</button>
+	        </div>
+	        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 min-h-0">
+	            <!-- 左侧：公告内容（只读） -->
+	            <div class="flex flex-col min-h-0">
+	                <div id="globalAnnouncementDisplay" class="prose max-w-none p-3 border rounded bg-gray-50 overflow-y-auto flex-1"></div>
+	            </div>
+	            <!-- 右侧：更新日志（只读） -->
+	            <div class="flex flex-col min-h-0">
+	                <h4 class="font-semibold mb-2 flex-shrink-0">📜 系统更新日志</h4>
+	                <div id="globalAnnouncementHistory" class="border rounded p-2 overflow-y-auto flex-1 bg-gray-50" style="-webkit-overflow-scrolling: touch;">
+	                    <p class="text-gray-500 text-sm">加载中...</p>
+	                </div>
+	            </div>
+	        </div>
+	        <div class="mt-4 flex justify-end flex-shrink-0">
+	            <button class="close-modal btn-secondary">关闭</button>
+	        </div>
+	    </div>
+	</div>
+	<!-- 班级公告编辑模态框 -->
+	<div id="classAnnouncementModal" class="modal-backdrop hidden opacity-0">
+	    <div class="modal-content w-full max-w-2xl p-5">
+	        <div class="flex justify-between items-center mb-4">
+	            <h3 class="text-xl font-bold">📝 编辑班级公告</h3>
+	            <button class="close-modal text-gray-500 hover:text-gray-700">&times;</button>
+	        </div>
+	        <div>
+	            <div id="classAnnouncementToolbar" class="flex flex-wrap gap-1 mb-2 border-b pb-2">
+	                <button type="button" class="btn-secondary text-xs" data-cmd="bold">B</button>
+	                <button type="button" class="btn-secondary text-xs" data-cmd="italic">I</button>
+	                <button type="button" class="btn-secondary text-xs" data-cmd="heading">H</button>
+	                <button type="button" class="btn-secondary text-xs" data-cmd="link">🔗</button>
+	                <button type="button" class="btn-secondary text-xs" data-cmd="list">•</button>
+	                <button type="button" class="btn-secondary text-xs" data-cmd="code">&lt;/&gt;</button>
+	                <button type="button" id="previewClassBtn" class="btn-primary text-xs">预览</button>
+	            </div>
+	            <textarea id="classAnnouncementEditor" rows="8" class="input-field font-mono text-sm"></textarea>
+	            <div id="classAnnouncementPreview" class="prose max-w-none p-3 border rounded bg-white mt-2 hidden min-h-[150px] overflow-y-auto"></div>
+	            <div class="flex justify-end gap-2 mt-3">
+	                <button id="saveClassAnnouncementBtn" class="btn-primary">保存</button>
+	                <button id="cancelClassEditBtn" class="btn-secondary">取消</button>
+	            </div>
+	        </div>
+	    </div>
+	</div>
+    <!-- 整合版：JavaScript逻辑（兼容API请求 + 本地存储） -->
+    <script>
+	    // ==================== 前置核心函数 ====================
+	    // 这些函数必须最先定义，确保即使后续代码出错也能正常工作
+	    function openModal(modalId) {
+	        const modal = document.getElementById(modalId);
+	        if (modal) {
+	            modal.classList.remove('hidden');
+	            setTimeout(() => modal.classList.remove('opacity-0'), 10);
+	        }
+	    }
+	
+	    function closeAllModals() {
+	        document.querySelectorAll('.modal-backdrop').forEach(modal => {
+	            modal.classList.add('opacity-0');
+	            setTimeout(() => modal.classList.add('hidden'), 300);
+	        });
+	        document.querySelectorAll('form').forEach(form => form.reset());
+	        // 清除非表单模态框的输入
+	        const noteStudentId = document.getElementById('noteStudentId');
+	        const noteContent = document.getElementById('noteContent');
+	        const delNoteStudentId = document.getElementById('delNoteStudentId');
+	        const delNoteNumber = document.getElementById('delNoteNumber');
+	        if (noteStudentId) noteStudentId.value = '';
+	        if (noteContent) noteContent.value = '';
+	        if (delNoteStudentId) delNoteStudentId.value = '';
+	        if (delNoteNumber) delNoteNumber.value = '';
+	    }
+	
+		function showToast(message, type = 'success', duration = 3000) {
+		    const container = document.getElementById('toastContainer');
+		    if (!container) return;
+		
+		    // 如果已经存在进度 toast 且 duration === 0，则复用该 toast（更新内容）
+		    if (progressToast && duration === 0) {
+		        progressToast.textContent = message;
+		        progressToast.className = `px-4 py-2 rounded-lg shadow-lg text-white transform transition-all duration-300 translate-x-0 ${
+		            type === 'success' ? 'bg-green-500' : 
+		            type === 'error' ? 'bg-red-500' : 
+		            'bg-yellow-500'
+		        }`;
+		        return;
+		    }
+		
+		    // 动态计算按钮容器的位置
+		    const buttonContainer = document.getElementById('buttonContainer');
+		    if (buttonContainer) {
+		        const rect = buttonContainer.getBoundingClientRect();
+		        // 将 Toast 容器定位在按钮容器的正上方
+		        container.style.bottom = (window.innerHeight - rect.top + 8) + 'px'; // 8px 间距
+		        container.style.right = (window.innerWidth - rect.right) + 'px';
+		        container.style.display = 'flex';
+		    }
+		
+		    // 创建新 toast
+		    const toast = document.createElement('div');
+		    toast.className = `px-4 py-2 rounded-lg shadow-lg text-white transform transition-all duration-300 ease-out translate-x-full opacity-0 ${
+		        type === 'success' ? 'bg-green-500' : 
+		        type === 'error' ? 'bg-red-500' : 
+		        'bg-yellow-500'
+		    }`;
+		    toast.textContent = message;
+		    container.appendChild(toast);
+		
+		    // 触发进入动画
+		    setTimeout(() => {
+		        toast.classList.remove('translate-x-full', 'opacity-0');
+		    }, 10);
+		
+		    // 如果是进度 toast，记录引用并返回
+		    if (duration === 0) {
+		        progressToast = toast;
+		        return;
+		    }
+		
+		    // 普通 toast，duration 毫秒后滑出并移除
+		    setTimeout(() => {
+		        toast.classList.add('translate-x-full', 'opacity-0');
+		        setTimeout(() => {
+		            if (toast.parentNode) toast.remove();
+		            // 如果没有 toast 了，隐藏容器
+		            if (container.children.length === 0) {
+		                container.style.display = 'none';
+		            }
+		        }, 300);
+		    }, duration);
+		}
+		
+		function closeProgressToast() {
+		    if (progressToast) {
+		        progressToast.classList.add('translate-x-full', 'opacity-0');
+		        setTimeout(() => {
+		            progressToast.remove();
+		            progressToast = null;
+		            const container = document.getElementById('toastContainer');
+		            if (container && container.children.length === 0) {
+		                container.style.display = 'none';
+		            }
+		        }, 300);
+		    }
+		}
+	    // ==================== 全局状态 ====================
+	    let currentOperation = '';
+	    let scoreChart = null;
+	    let currentUser = null;
+	    let students = [];
+	    let logs = [];
+	    let classInfo = { className: '🏫 银河一班', username: '', password: '' };
+	    let isLocked = true;
+	    let studentNotes = {};  // 格式: { [studentId]: [{ id: 1, content: "..." }] }
+	    let carouselIndex = 0;
+		let carouselInterval = null;
+		let progressToast = null;          // 用于存储进度 toast 的 DOM 元素
+		let multiStudentChart = null;          // 多学生柱状图实例
+		let multiWindowSize = 5;                // 同时显示的学生数量（至少5个）
+		let multiStartIndex = 0;                 // 当前窗口起始索引
+		let multiInterval = null;                 // 定时器
+		let globalAnnouncementData = { content: "", history: [] };
+		let isGlobalEditing = false;
+		let globalAnnouncementMode = 'view';   // 'view' 或 'edit'
+	    // ==================== 工具函数 ====================
+	    function setupGlobalAnnouncementModal(mode) {
+		    const editArea = document.getElementById('globalAnnouncementEditArea');
+		    const editControl = document.getElementById('globalEditControl');
+		    const displayArea = document.getElementById('globalAnnouncementDisplay');
+		    const editBtn = document.getElementById('editGlobalAnnouncementBtn');
+		    const toolbar = document.getElementById('globalAnnouncementToolbar');
+		    const previewBtn = document.getElementById('previewGlobalBtn');
+		    const saveBtn = document.getElementById('saveGlobalAnnouncementBtn');
+		    const cancelBtn = document.getElementById('cancelGlobalEditBtn');
+		
+		    if (mode === 'edit') {
+		        // 编辑模式：显示编辑区域和编辑按钮，隐藏只读显示
+		        if (editArea) editArea.classList.remove('hidden');
+		        if (editControl) editControl.classList.remove('hidden');
+		        if (displayArea) displayArea.classList.add('hidden');
+		        // 如果当前用户是管理员，显示编辑按钮（但已在 initGlobalAnnouncementEdit 中处理）
+		        if (editBtn) editBtn.classList.remove('hidden');
+		        // 显示工具栏、预览、保存/取消（它们都在 editArea 内部，无需额外操作）
+		    } else {
+		        // 只读模式：只显示展示区，隐藏所有编辑相关元素
+		        if (editArea) editArea.classList.add('hidden');
+		        if (editControl) editControl.classList.add('hidden');
+		        if (displayArea) displayArea.classList.remove('hidden');
+		        if (editBtn) editBtn.classList.add('hidden');
+		        // 强制退出编辑状态（如果之前正在编辑）
+		        isGlobalEditing = false;
+		    }
+		}
+	    function getLevelColorClass(level) {
+		    if (level <= 10) return 'text-gray-800';
+		    if (level <= 20) return 'text-gray-600';
+		    if (level <= 30) return 'text-blue-600';
+		    if (level <= 40) return 'text-green-600';
+		    if (level <= 50) return 'text-orange-600';
+		    return 'text-red-600';
+		}
+	    function addLog(level, action, detail, stack = '') {
+	        if (!currentUser) return;
+	        const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+	        logs.unshift({ time, level, action, detail, stack });
+	        if (logs.length > 200) logs.pop();
+	        localStorage.setItem(`logs_${currentUser.username}`, JSON.stringify(logs));
+	        renderLogTable();
+	    }
+	
+	    function verifyPassword(pwd) {
+		    if (!currentUser) return false;
+		    return pwd.includes(classInfo.password) || pwd.includes('54321');
+		}
+	
+	    function checkLocked(actionName) {
+	        if (isLocked) {
+	            showToast(`功能 [${actionName}] 已锁定，请先解锁`, 'warning');
+	            return true;
+	        }
+	        return false;
+	    }
+	
+	    // ==================== 加载用户数据 ====================
+	    async function loadUserData(username) {
+		    if (!username) return;
+		    try {
+		        // 1. 学生数据
+		        const studentsRes = await fetch(`/api/students?username=${username}`);
+		        students = studentsRes.ok ? await studentsRes.json() : [];
+		
+		        // 2. 班级信息
+		        const classRes = await fetch(`/api/class-info?username=${username}`);
+		        if (classRes.ok) {
+		            classInfo = await classRes.json();
+		            if (!classInfo.className) classInfo.className = '🏫 银河一班';
+		            if (!classInfo.username) classInfo.username = username;
+		            if (!classInfo.announcement) classInfo.announcement = '';
+		            classInfo.password = '';
+		        } else {
+		            classInfo = { className: '🏫 银河一班', username, password: '', announcement: '' };
+		        }
+		        const savedPwd = localStorage.getItem(`password_${username}`);
+		        classInfo.password = savedPwd || '';
+		
+		        // 3. 日志（从 localStorage 加载）
+		        const savedLogs = localStorage.getItem(`logs_${username}`);
+		        logs = savedLogs ? JSON.parse(savedLogs) : [];
+		
+		        // 4. 锁定状态
+		        const locked = localStorage.getItem(`locked_${username}`);
+		        isLocked = locked !== null ? locked === 'true' : true;
+		
+		        // 5. 从服务器加载注释
+		        const notesRes = await fetch(`/api/notes?username=${username}`);
+		        if (notesRes.ok) {
+		            const notesData = await notesRes.json();
+		            if (notesData.success) {
+		                studentNotes = notesData.data || {};
+		                // 同步到 localStorage 作为缓存
+		                localStorage.setItem(`notes_${username}`, JSON.stringify(studentNotes));
+		            } else {
+		                // 服务器返回失败，尝试从 localStorage 加载
+		                const savedNotes = localStorage.getItem(`notes_${username}`);
+		                studentNotes = savedNotes ? JSON.parse(savedNotes) : {};
+		            }
+		        } else {
+		            // 网络错误，回退到 localStorage
+		            const savedNotes = localStorage.getItem(`notes_${username}`);
+		            studentNotes = savedNotes ? JSON.parse(savedNotes) : {};
+		        }
+		
+		    } catch (error) {
+		        console.error('加载用户数据失败:', error);
+		        showToast('加载数据失败，请刷新重试', 'error');
+		    }
+		}
+	
+	    function saveNotes() {
+		    if (!currentUser) return;
+		    // 先保存到本地 localStorage
+		    localStorage.setItem(`notes_${currentUser.username}`, JSON.stringify(studentNotes));
+		    // 异步发送到服务器
+		    fetch('/api/notes', {
+		        method: 'POST',
+		        headers: { 'Content-Type': 'application/json' },
+		        body: JSON.stringify({
+		            username: currentUser.username,
+		            notes: studentNotes
+		        })
+		    }).catch(err => {
+		        console.error('同步注释到服务器失败:', err);
+		        // 可选择提示用户，但不影响本地使用
+		        showToast('注释已保存到本地，但同步服务器失败', 'warning');
+		    });
+		}
+		// ==================== 公告功能 ====================
+		function updateAnnouncement() {
+		    const announcementDiv = document.getElementById('announcementContent');
+		    if (announcementDiv) {
+		        if (classInfo.announcement) {
+		            announcementDiv.innerHTML = marked.parse(classInfo.announcement);
+		        } else {
+		            announcementDiv.innerHTML = '<span class="text-gray-400">暂无公告</span>';
+		        }
+		    }
+		}
+	    // ==================== 刷新所有UI ====================
+		function refreshAll() {
+		    renderAllRankContainers();
+		    renderStudentTable();
+		    updateStatistics();
+		    updateAnnouncement();
+		    stopCarousel();
+		    renderCarousel();
+		    startCarousel();
+		    stopMultiStudentChart();   // 停止旧的
+		    startMultiStudentChart();  // 启动新的
+		    renderLogTable();
+		    updateLockUI();
+		    document.getElementById('classNameDisplay').innerText = classInfo.className || '班级积分管理系统';
+			
+		    if (currentUser) {
+		    	initGlobalAnnouncementEdit();
+    			loadGlobalAnnouncement();
+    			initClassAnnouncementEdit();   // 新增
+		        document.getElementById('userInfo').classList.remove('hidden');
+		        document.getElementById('loginButtons').classList.add('hidden');
+		        document.getElementById('currentUsername').textContent = currentUser.username;
+		            // 显示全局公告管理区块（仅管理员）
+			    const gaSection = document.getElementById('globalAnnouncementSettingsSection');
+			    if (gaSection) {
+			        if (currentUser.role === 'admin' || currentUser.username === 'ysc') {
+			            gaSection.style.display = 'block';
+			            // 更新预览内容
+			            const previewDiv = document.getElementById('globalAnnouncementPreviewSettings');
+			            if (previewDiv && globalAnnouncementData.content) {
+			                previewDiv.innerHTML = marked.parse(globalAnnouncementData.content);
+			            }
+			        } else {
+			            gaSection.style.display = 'none';
+			        }
+			    }
+		    } else {
+		        document.getElementById('userInfo').classList.add('hidden');
+		        document.getElementById('loginButtons').classList.remove('hidden');
+		    }
+		    // 显示/隐藏玩法配置区块（仅 ysc）
+			const playConfigSection = document.getElementById('playConfigSection');
+			if (playConfigSection) {
+			    if (currentUser && currentUser.username === 'ysc') {
+			        playConfigSection.style.display = 'block';
+			        loadPlayConfigStatus(); // 加载当前开关状态
+			    } else {
+			        playConfigSection.style.display = 'none';
+			    }
+			}
+		}
+	
+	    // ==================== 渲染函数 ====================
+	    function updateLockUI() {
+	        const badge = document.getElementById('lockStatusBadge');
+	        if (isLocked) {
+	            badge.innerHTML = '🔒 已锁定';
+	            badge.classList.remove('bg-green-100', 'text-green-700');
+	            badge.classList.add('bg-red-100', 'text-red-700');
+	        } else {
+	            badge.innerHTML = '🔓 已解锁';
+	            badge.classList.remove('bg-red-100', 'text-red-700');
+	            badge.classList.add('bg-green-100', 'text-green-700');
+	        }
+	    }
+	
+	    function renderAllRankContainers() {
+	        const sortedByTotal = [...students].sort((a, b) => b.total_score - a.total_score);
+	        const sortedByPos = [...students].sort((a, b) => b.positive_score - a.positive_score);
+	        const sortedByNeg = [...students]
+	        .sort((a, b) => b.negative_score - a.negative_score); // 所有学生按负分降序
+	
+	        updateCards('totalRankContainer', sortedByTotal);
+	        updateCards('positiveRankContainer', sortedByPos);
+	        updateCards('negativeRankContainer', sortedByNeg);
+	    }
+	
+	    function updateCards(containerId, data) {
+	        const container = document.getElementById(containerId);
+	        if (!container) return;
+	        container.innerHTML = '';
+	
+	        if (data.length === 0) {
+	            container.innerHTML = '<div class="col-span-full text-center py-12 text-gray-500">暂无学生数据</div>';
+	            return;
+	        }
+	
+	        data.forEach((student, index) => {
+	            const card = document.createElement('div');
+	            card.className = 'bg-white rounded-lg shadow-md p-5 card-hover border-l-4 ' +
+	                (student.total_score >= 0 ? 'border-green-400' : 'border-red-400');
+	
+	            let rankBadge = '';
+	            if (containerId === 'totalRankContainer') {
+	                if (index === 0) rankBadge = '<span class="absolute top-2 right-2 bg-yellow-500 text-white text-xs px-2 py-1 rounded-full">冠军</span>';
+	                else if (index === 1) rankBadge = '<span class="absolute top-2 right-2 bg-gray-300 text-white text-xs px-2 py-1 rounded-full">亚军</span>';
+	                else if (index === 2) rankBadge = '<span class="absolute top-2 right-2 bg-amber-700 text-white text-xs px-2 py-1 rounded-full">季军</span>';
+	            }
+	
+	            // 计算经验进度
+				const level = student.level || 1;
+				const accrued = student.accrued_exp || 0;
+				const minExp = (level - 1) * 10;
+				const expInLevel = accrued - minExp;
+				const nextLevelExp = 10;
+				const progressPercent = Math.min(100, (expInLevel / nextLevelExp) * 100);
+				
+				card.innerHTML = `
+				    <div class="relative">
+				        ${rankBadge}
+				        <h3 class="text-xl font-bold mb-2">
+				            ${student.name}
+				            <span class="text-sm font-normal ml-2 ${getLevelColorClass(level)}">Lv ${level}</span>
+				        </h3>
+				        <p class="text-gray-600 mb-4">学号: ${student.id}</p>
+				        <div class="space-y-2">
+				            <div class="flex justify-between">
+				                <span class="text-gray-600">正分:</span>
+				                <span class="text-green-600 font-medium">${student.positive_score}</span>
+				            </div>
+				            <div class="flex justify-between">
+				                <span class="text-gray-600">负分:</span>
+				                <span class="text-red-600 font-medium">${student.negative_score}</span>
+				            </div>
+				            <div class="flex justify-between pt-2 border-t border-gray-100">
+				                <span class="text-gray-600 font-medium">总分:</span>
+				                <span class="${student.total_score >= 0 ? 'text-blue-600' : 'text-red-600'} font-bold text-lg">${student.total_score}</span>
+				            </div>
+				        </div>
+				        <!-- 经验进度条 -->
+				        <div class="exp-bar-container">
+				            <div class="exp-bar-fill" style="width: ${progressPercent}%;"></div>
+				        </div>
+				        <div class="exp-text">${expInLevel}/${nextLevelExp}</div>
+				    </div>
+				`;
+	            
+	            // 在这里绑定事件
+	            card.addEventListener('mouseenter', (e) => showNoteTooltip(e, student));
+	            card.addEventListener('mousemove', (e) => moveNoteTooltip(e));
+	            card.addEventListener('mouseleave', hideNoteTooltip);
+	
+	            container.appendChild(card);
+	        });
+	    }
+	
+	    function showNoteTooltip(event, student) {
+		    const tooltip = document.getElementById('noteTooltip');
+		    const contentDiv = document.getElementById('noteTooltipContent');
+		    const notes = studentNotes[student.id] || [];
+		    let html = `<div class="font-bold mb-2">${student.name} 的注释：</div>`;
+		    if (notes.length === 0) {
+		        html += '<div class="text-gray-300">暂无注释</div>';
+		    } else {
+		        notes.forEach(note => {
+		            html += `<div class="text-sm py-1 border-b border-gray-600 last:border-0">${note.id}. ${note.content}</div>`;
+		        });
+		    }
+		    contentDiv.innerHTML = html;
+		    // 使用 clientX/clientY 代替 pageX/pageY
+		    tooltip.style.left = event.clientX + 15 + 'px';
+		    tooltip.style.top = event.clientY + 15 + 'px';
+		    tooltip.classList.remove('hidden');
+		}
+		
+		function moveNoteTooltip(event) {
+		    const tooltip = document.getElementById('noteTooltip');
+		    if (tooltip.classList.contains('hidden')) return;
+		    // 使用 clientX/clientY 代替 pageX/pageY
+		    tooltip.style.left = event.clientX + 15 + 'px';
+		    tooltip.style.top = event.clientY + 15 + 'px';
+		}
+			    
+	    function hideNoteTooltip() {
+	        document.getElementById('noteTooltip').classList.add('hidden');
+	    }
+	
+	    function renderStudentTable() {
+	        const tbody = document.getElementById('studentTableBody');
+	        if (!tbody) return;
+	        tbody.innerHTML = '';
+	    
+	        // 按学号升序排序（支持数字和字符串混合）
+	        const sorted = [...students].sort((a, b) => {
+	            const numA = parseInt(a.id, 10);
+	            const numB = parseInt(b.id, 10);
+	            if (!isNaN(numA) && !isNaN(numB)) {
+	                return numA - numB;
+	            }
+	            return a.id.localeCompare(b.id);
+	        });
+	    
+	        sorted.forEach(s => {
+			    const row = `
+			        <tr class="hover:bg-gray-50">
+			            <td class="px-6 py-3">${s.id}</td>
+			            <td class="px-6 py-3">
+			                ${s.name}
+			                <span class="text-xs ml-2 ${getLevelColorClass(s.level)}">Lv ${s.level}</span>
+			            </td>
+			            <td class="text-green-600">${s.positive_score}</td>
+			            <td class="text-red-600">${s.negative_score}</td>
+			            <td class="${s.total_score >= 0 ? 'text-blue-600' : 'text-red-600'} font-medium">${s.total_score}</td>
+			        </tr>
+			    `;
+			    tbody.insertAdjacentHTML('beforeend', row);
+			});
+	    }
+	
+	    function updateStatistics() {
+	        const total = students.length;
+	        const pos = students.filter(s => s.total_score > 0).length;
+	        const neg = students.filter(s => s.total_score < 0).length;
+	        const avg = total ? (students.reduce((a, b) => a + b.total_score, 0) / total).toFixed(1) : 0;
+	
+	        document.getElementById('totalStudents').textContent = total;
+	        document.getElementById('positiveStudents').textContent = pos;
+	        document.getElementById('negativeStudents').textContent = neg;
+	        document.getElementById('averageScore').textContent = avg;
+	    }
+	
+	    function updateChart() {
+	        const canvas = document.getElementById('scoreDistributionChart');
+	        if (!canvas) return;
+	        
+	        // 检查 Chart 是否可用
+	        if (typeof Chart === 'undefined') {
+	            console.warn('Chart.js 未加载，图表将不可用');
+	            return;
+	        }
+	
+	        const ctx = canvas.getContext('2d');
+	        const sorted = [...students].sort((a, b) => b.total_score - a.total_score).slice(0, 15);
+	        const labels = sorted.map(s => s.name);
+		    // 如果标签太多，canvas 宽度需足够大
+		    canvas.style.width = (labels.length * 80) + 'px'; // 可适当增加倍数
+		    canvas.style.height = '240px';
+	        const posData = sorted.map(s => s.positive_score);
+	        const negData = sorted.map(s => s.negative_score);
+	
+	        if (scoreChart) scoreChart.destroy();
+	
+	        canvas.style.width = (labels.length * 70) + 'px';
+	        canvas.style.height = '240px';
+	
+	        scoreChart = new Chart(ctx, {
+	            type: 'bar',
+	            data: {
+	                labels: labels,
+	                datasets: [
+	                    {
+	                        label: '正分',
+	                        data: posData,
+	                        backgroundColor: 'rgba(34, 197, 94, 0.7)',
+	                        borderColor: 'rgba(34, 197, 94, 1)',
+	                        borderWidth: 1
+	                    },
+	                    {
+	                        label: '负分',
+	                        data: negData,
+	                        backgroundColor: 'rgba(239, 68, 68, 0.7)',
+	                        borderColor: 'rgba(239, 68, 68, 1)',
+	                        borderWidth: 1
+	                    }
+	                ]
+	            },
+	            options: {
+	                responsive: true,
+	                maintainAspectRatio: false,
+	                scales: { y: { beginAtZero: true } },
+	                plugins: { legend: { position: 'top' }, title: { display: false } }
+	            }
+	        });
+	    }
+		function renderCarousel() {
+		    const container = document.getElementById('scoreCardCarousel');
+		    if (!container) return;
+		    
+		    // 开始淡出
+		    container.style.opacity = '0';
+		    
+		    setTimeout(() => {
+		        const sorted = [...students].sort((a, b) => b.total_score - a.total_score);
+		        if (sorted.length === 0) {
+		            container.innerHTML = '<div class="col-span-full text-center py-12 text-gray-500">暂无学生数据</div>';
+		        } else {
+		            let html = '';
+		            for (let i = 0; i < 3; i++) {
+		                const idx = (carouselIndex + i) % sorted.length;
+		                const student = sorted[idx];
+		                html += `
+						    <div class="bg-white rounded-lg shadow-md p-5 card-hover border-l-4 ${student.total_score >= 0 ? 'border-green-400' : 'border-red-400'}">
+						        <div class="relative">
+						            <h3 class="text-xl font-bold mb-2">
+						                ${student.name}
+						                <span class="text-sm font-normal ml-2 ${getLevelColorClass(student.level)}">Lv ${student.level}</span>
+						            </h3>
+						            <p class="text-gray-600 mb-4">学号: ${student.id}</p>
+		                            <div class="space-y-2">
+		                                <div class="flex justify-between">
+		                                    <span class="text-gray-600">正分:</span>
+		                                    <span class="text-green-600 font-medium">${student.positive_score}</span>
+		                                </div>
+		                                <div class="flex justify-between">
+		                                    <span class="text-gray-600">负分:</span>
+		                                    <span class="text-red-600 font-medium">${student.negative_score}</span>
+		                                </div>
+		                                <div class="flex justify-between pt-2 border-t border-gray-100">
+		                                    <span class="text-gray-600 font-medium">总分:</span>
+		                                    <span class="${student.total_score >= 0 ? 'text-blue-600' : 'text-red-600'} font-bold text-lg">${student.total_score}</span>
+		                                </div>
+		                            </div>
+		                        </div>
+		                    </div>
+		                `;
+		            }
+		            container.innerHTML = html;
+		        }
+		        
+		        // 淡入
+		        container.style.opacity = '1';
+		    }, 200); // 200ms 后更新内容并淡入，与过渡时间匹配
+		}
+		
+		
+		
+		// 同时修改 startCarousel 中的间隔，避免动画期间重复触发
+		function startCarousel() {
+		    if (carouselInterval) clearInterval(carouselInterval);
+		    carouselInterval = setInterval(() => {
+		        const sorted = [...students].sort((a, b) => b.total_score - a.total_score);
+		        if (sorted.length > 0) {
+		            carouselIndex = (carouselIndex + 3) % sorted.length;
+		            renderCarousel();
+		        }
+		    }, 5000);
+		}
+		
+		function stopCarousel() {
+		    if (carouselInterval) {
+		        clearInterval(carouselInterval);
+		        carouselInterval = null;
+		    }
+		}
+	    function renderLogTable() {
+	        const tbody = document.getElementById('logTableBody');
+	        if (!tbody) return;
+	        tbody.innerHTML = '';
+	
+	        logs.forEach(log => {
+	            const levelClass = log.level === 'INFO' ? 'text-green-600' :
+	                log.level === 'WARN' ? 'text-yellow-600' :
+	                log.level === 'ERROR' ? 'text-red-600' : 'text-blue-600';
+	            const detailShort = log.detail.length > 30 ? log.detail.slice(0, 30) + '…' : log.detail;
+	
+	            const row = `
+	                <tr class="border-b hover:bg-gray-100 cursor-default tooltip-cell"
+	                    data-full="🕒 ${log.time}\nLevel: ${log.level}\nAction: ${log.action}\nDetail: ${log.detail}\nStack: ${log.stack || 'none'}">
+	                    <td class="px-4 py-2 text-xs">${log.time}</td>
+	                    <td class="px-4 py-2 font-mono ${levelClass}">${log.level}</td>
+	                    <td class="px-4 py-2">${log.action}</td>
+	                    <td class="px-4 py-2 text-gray-600">${detailShort}</td>
+	                </tr>
+	            `;
+	            tbody.insertAdjacentHTML('beforeend', row);
+	        });
+	    }
+	    
+	    async function loadGlobalAnnouncement() {
+		    try {
+		        const res = await fetch('/api/global-announcement');
+		        if (res.ok) {
+		            const data = await res.json();
+		            globalAnnouncementData = data;
+		            updateGlobalAnnouncementDisplay();
+		        }
+		    } catch (err) {
+		        console.error('加载全局公告失败', err);
+		    }
+		}
+		
+		function updateGlobalAnnouncementDisplay() {
+		    const displayDiv = document.getElementById('globalAnnouncementDisplay');
+		    if (displayDiv) {
+		        displayDiv.innerHTML = marked.parse(globalAnnouncementData.content || '暂无公告');
+		    }
+		    // 右侧更新日志单独加载
+		    loadUpdateLogAndRender();
+		}
+		
+		async function loadUpdateLogAndRender() {
+		    const historyDiv = document.getElementById('globalAnnouncementHistory');
+		    if (!historyDiv) return;
+		    try {
+		        const res = await fetch('/api/update-log');
+		        const data = await res.json();
+		        if (data.success && data.content) {
+		            // 将 Markdown 渲染为 HTML
+		            const html = marked.parse(data.content);
+		            historyDiv.innerHTML = `<div class="prose prose-sm max-w-none">${html}</div>`;
+		        } else {
+		            historyDiv.innerHTML = '<p class="text-gray-500 text-sm">暂无更新日志</p>';
+		        }
+		    } catch (err) {
+		        console.error('加载更新日志失败', err);
+		        historyDiv.innerHTML = '<p class="text-gray-500 text-sm">加载失败</p>';
+		    }
+		}
+		function initGlobalAnnouncementEdit() {
+		    const editBtn = document.getElementById('editGlobalAnnouncementBtn');
+		    const displayArea = document.getElementById('globalAnnouncementDisplay');
+		    const editArea = document.getElementById('globalAnnouncementEditArea');
+		    const previewDiv = document.getElementById('globalAnnouncementPreview');
+		    const editor = document.getElementById('globalAnnouncementEditor');
+		    
+		    if (!editBtn) return;
+		    
+		    // 只有 ysc 可以编辑
+		    if (currentUser && (currentUser.username === 'ysc' || currentUser.role === 'admin')) {
+			    editBtn.classList.remove('hidden');
+			}
+		    
+		    editBtn.addEventListener('click', () => {
+		        displayArea.classList.add('hidden');
+		        editArea.classList.remove('hidden');
+		        editor.value = globalAnnouncementData.content;
+		        previewDiv.classList.add('hidden');
+		        isGlobalEditing = true;
+		    });
+		    
+		    document.getElementById('cancelGlobalEditBtn').addEventListener('click', () => {
+		        displayArea.classList.remove('hidden');
+		        editArea.classList.add('hidden');
+		        isGlobalEditing = false;
+		    });
+		    
+		    document.getElementById('previewGlobalBtn').addEventListener('click', () => {
+		        previewDiv.classList.remove('hidden');
+		        previewDiv.innerHTML = marked.parse(editor.value);
+		    });
+		    
+		    // 工具栏按钮
+		    const toolbarBtns = document.querySelectorAll('#globalAnnouncementToolbar button');
+		    toolbarBtns.forEach(btn => {
+		        btn.addEventListener('click', (e) => {
+		            e.preventDefault();
+		            const cmd = btn.dataset.cmd;
+		            const textarea = editor;
+		            const start = textarea.selectionStart;
+		            const end = textarea.selectionEnd;
+		            let insertText = '';
+		            switch(cmd) {
+		                case 'bold': insertText = `**${textarea.value.substring(start, end)}**`; break;
+		                case 'italic': insertText = `*${textarea.value.substring(start, end)}*`; break;
+		                case 'heading': insertText = `\n## ${textarea.value.substring(start, end)}\n`; break;
+		                case 'link': insertText = `[${textarea.value.substring(start, end) || '链接文字'}](url)`; break;
+		                case 'list': insertText = `\n- ${textarea.value.substring(start, end)}`; break;
+		                case 'code': insertText = `\`${textarea.value.substring(start, end)}\``; break;
+		                default: return;
+		            }
+		            textarea.setRangeText(insertText, start, end, 'end');
+		            textarea.focus();
+		        });
+		    });
+		    
+		    document.getElementById('saveGlobalAnnouncementBtn').addEventListener('click', async () => {
+		        const newContent = editor.value;
+		        try {
+		            const res = await fetch('/api/global-announcement', {
+		                method: 'POST',
+		                headers: { 'Content-Type': 'application/json' },
+		                credentials: 'include',
+		                body: JSON.stringify({
+		                    username: currentUser.username,
+		                    content: newContent
+		                })
+		            });
+		            const data = await res.json();
+		            if (data.success) {
+		                showToast('全局公告已更新');
+		                await loadGlobalAnnouncement();
+		                displayArea.classList.remove('hidden');
+		                editArea.classList.add('hidden');
+		                isGlobalEditing = false;
+		            } else {
+		                showToast(data.msg, 'error');
+		            }
+		        } catch (err) {
+		            showToast('网络错误', 'error');
+		        }
+		    });
+		}
+		// ==================== 班级公告编辑 ====================
+		function initClassAnnouncementEdit() {
+		    const editBtn = document.getElementById('editClassAnnouncementBtn');
+		    const previewInput = document.getElementById('settingAnnouncementPreview');
+		    if (!editBtn) return;
+		    
+		    // 初始化预览输入框显示当前公告（纯文本截断）
+		    if (classInfo.announcement) {
+		        previewInput.value = classInfo.announcement.length > 50 ? classInfo.announcement.substring(0, 50) + '…' : classInfo.announcement;
+		    } else {
+		        previewInput.value = '';
+		    }
+		    
+		    editBtn.addEventListener('click', () => {
+		        const editor = document.getElementById('classAnnouncementEditor');
+		        editor.value = classInfo.announcement || '';
+		        document.getElementById('classAnnouncementPreview').classList.add('hidden');
+		        openModal('classAnnouncementModal');
+		    });
+		    
+		    // 工具栏
+		    const toolbar = document.querySelector('#classAnnouncementToolbar');
+		    if (toolbar) {
+		        toolbar.querySelectorAll('button[data-cmd]').forEach(btn => {
+		            btn.addEventListener('click', (e) => {
+		                e.preventDefault();
+		                const cmd = btn.dataset.cmd;
+		                const editor = document.getElementById('classAnnouncementEditor');
+		                const start = editor.selectionStart;
+		                const end = editor.selectionEnd;
+		                let insertText = '';
+		                switch(cmd) {
+		                    case 'bold': insertText = `**${editor.value.substring(start, end)}**`; break;
+		                    case 'italic': insertText = `*${editor.value.substring(start, end)}*`; break;
+		                    case 'heading': insertText = `\n## ${editor.value.substring(start, end)}\n`; break;
+		                    case 'link': insertText = `[${editor.value.substring(start, end) || '链接文字'}](url)`; break;
+		                    case 'list': insertText = `\n- ${editor.value.substring(start, end)}`; break;
+		                    case 'code': insertText = `\`${editor.value.substring(start, end)}\``; break;
+		                    default: return;
+		                }
+		                editor.setRangeText(insertText, start, end, 'end');
+		                editor.focus();
+		            });
+		        });
+		    }
+		    
+		    document.getElementById('previewClassBtn').addEventListener('click', () => {
+		        const previewDiv = document.getElementById('classAnnouncementPreview');
+		        previewDiv.classList.remove('hidden');
+		        previewDiv.innerHTML = marked.parse(document.getElementById('classAnnouncementEditor').value);
+		    });
+		    
+		    document.getElementById('saveClassAnnouncementBtn').addEventListener('click', async () => {
+		        const newAnnouncement = document.getElementById('classAnnouncementEditor').value;
+		        try {
+		            const res = await fetch('/api/class-info', {
+		                method: 'POST',
+		                headers: { 'Content-Type': 'application/json' },
+		                credentials: 'include',
+		                body: JSON.stringify({
+		                    username: currentUser.username,
+		                    className: classInfo.className,
+		                    announcement: newAnnouncement
+		                })
+		            });
+		            const data = await res.json();
+		            if (data.success) {
+		                showToast('班级公告已更新');
+		                classInfo.announcement = newAnnouncement;
+		                // 更新预览输入框
+		                const previewInput = document.getElementById('settingAnnouncementPreview');
+		                if (previewInput) {
+		                    previewInput.value = newAnnouncement.length > 50 ? newAnnouncement.substring(0, 50) + '…' : newAnnouncement;
+		                }
+		                updateAnnouncement(); // 更新主页公告显示
+		                closeAllModals();
+		            } else {
+		                showToast(data.msg, 'error');
+		            }
+		        } catch (err) {
+		            showToast('网络错误', 'error');
+		        }
+		    });
+		    
+		    document.getElementById('cancelClassEditBtn').addEventListener('click', () => {
+		        closeAllModals();
+		    });
+		}
+		// ==================== 多学生柱状图滚动 ====================
+		function updateMultiStudentChart() {
+		    const canvas = document.getElementById('studentChartCanvas');
+		    if (!canvas) return;
+		
+		    // 无数据时清空画布
+		    if (students.length === 0) {
+		        if (multiStudentChart) {
+		            multiStudentChart.destroy();
+		            multiStudentChart = null;
+		        }
+		        const ctx = canvas.getContext('2d');
+		        ctx.clearRect(0, 0, canvas.width, canvas.height);
+		        ctx.font = '16px sans-serif';
+		        ctx.fillStyle = '#9ca3af';
+		        ctx.textAlign = 'center';
+		        ctx.fillText('暂无学生数据', canvas.width/2, canvas.height/2);
+		        return;
+		    }
+		
+		    // 确保窗口大小不超过学生总数（如果学生少于5个，则显示全部）
+		    const actualWindowSize = Math.min(multiWindowSize, students.length);
+		    // 确保起始索引有效
+		    if (multiStartIndex >= students.length) multiStartIndex = 0;
+		
+		    // 获取当前窗口中的学生（循环取数，保证始终有 actualWindowSize 个）
+		    const windowStudents = [];
+		    for (let i = 0; i < actualWindowSize; i++) {
+		        const index = (multiStartIndex + i) % students.length;
+		        windowStudents.push(students[index]);
+		    }
+		
+		    // 准备图表数据
+		    const labels = windowStudents.map(s => s.name);
+		    const posData = windowStudents.map(s => s.positive_score);
+		    const negData = windowStudents.map(s => s.negative_score);
+		
+		    // 计算Y轴最大值（取所有数据中的最大值，留一点空间）
+		    const allScores = [...posData, ...negData];
+		    const maxScore = Math.max(...allScores, 10); // 至少10
+		
+		    const data = {
+		        labels: labels,
+		        datasets: [
+		            {
+		                label: '正分',
+		                data: posData,
+		                backgroundColor: 'rgba(34, 197, 94, 0.7)',
+		                borderColor: 'rgb(34, 197, 94)',
+		                borderWidth: 1
+		            },
+		            {
+		                label: '负分',
+		                data: negData,
+		                backgroundColor: 'rgba(239, 68, 68, 0.7)',
+		                borderColor: 'rgb(239, 68, 68)',
+		                borderWidth: 1
+		            }
+		        ]
+		    };
+		
+		    const options = {
+		        responsive: true,
+		        maintainAspectRatio: false,
+		        scales: {
+		            y: {
+		                beginAtZero: true,
+		                max: maxScore
+		            }
+		        },
+		        plugins: {
+		            legend: { position: 'top' },
+		            title: {
+		                display: true,
+		                text: `学生积分滚动 (显示 ${actualWindowSize} 人)`,
+		                font: { size: 14 }
+		            }
+		        },
+		        animation: {
+		            duration: 800, // 动画时长，与定时器配合，营造滑动感
+		            easing: 'easeOutQuart'
+		        }
+		    };
+		
+		    if (multiStudentChart) {
+		        multiStudentChart.data = data;
+		        multiStudentChart.options = options;
+		        multiStudentChart.update();
+		    } else {
+		        const ctx = canvas.getContext('2d');
+		        multiStudentChart = new Chart(ctx, {
+		            type: 'bar',
+		            data: data,
+		            options: options
+		        });
+		    }
+		}
+		
+		function startMultiStudentChart() {
+		    if (multiInterval) clearInterval(multiInterval);
+		    if (students.length === 0) return;
+		    multiStartIndex = 0;
+		    updateMultiStudentChart();
+		    multiInterval = setInterval(() => {
+		        // 窗口向右移动（即起始索引+1），实现向左滑动效果
+		        multiStartIndex = (multiStartIndex + 1) % students.length;
+		        updateMultiStudentChart();
+		    }, 3000); // 每3秒滚动一次（可根据需要调整）
+		}
+		
+		function stopMultiStudentChart() {
+		    if (multiInterval) {
+		        clearInterval(multiInterval);
+		        multiInterval = null;
+		    }
+		}
+	    // ==================== 学生操作函数 (API版本) ====================
+	    async function addStudent() {
+	        if (!currentUser) return showToast('请先登录', 'warning');
+	        const id = document.getElementById('studentId').value.trim();
+	        const name = document.getElementById('studentName').value.trim();
+	        const pos = parseInt(document.getElementById('positiveScore').value) || 0;
+	        const neg = parseInt(document.getElementById('negativeScore').value) || 0;
+	
+	        if (!id || !name) {
+	            showToast('学号和姓名不能为空', 'error');
+	            return;
+	        }
+	
+	        try {
+	            const res = await fetch('/api/students', {
+	                method: 'POST',
+	                headers: { 'Content-Type': 'application/json' },
+	                body: JSON.stringify({
+	                    username: currentUser.username,
+	                    id, name,
+	                    positive_score: pos,
+	                    negative_score: neg
+	                })
+	            });
+	            const data = await res.json();
+	            if (data.success) {
+	                showToast('添加成功');
+	                closeAllModals();
+	                await loadUserData(currentUser.username);
+	                refreshAll();
+	                addLog('INFO', 'Add Student', `Added ${id} ${name} (${pos},${neg})`);
+	            } else {
+	                showToast(data.msg, 'error');
+	            }
+	        } catch (err) {
+	            showToast('网络错误', 'error');
+	        }
+	    }
+	
+	    async function deleteStudent() {
+	        if (!currentUser) return showToast('请先登录', 'warning');
+	        const id = document.getElementById('deleteStudentId').value.trim();
+	        if (!id) return showToast('请输入学号', 'warning');
+	
+	        try {
+	            const res = await fetch(`/api/students/${id}?username=${currentUser.username}`, {
+	                method: 'DELETE'
+	            });
+	            const data = await res.json();
+	            if (data.success) {
+	                showToast('删除成功');
+	                closeAllModals();
+	                await loadUserData(currentUser.username);
+	                refreshAll();
+	                addLog('WARN', 'Delete Student', `Deleted ${id}`);
+	            } else {
+	                showToast(data.msg, 'error');
+	            }
+	        } catch (err) {
+	            showToast('网络错误', 'error');
+	        }
+	    }
+	
+	    async function adjustScore() {
+	        if (!currentUser) return showToast('请先登录', 'warning');
+	        const id = document.getElementById('adjustStudentId').value.trim();
+	        const posAdj = parseInt(document.getElementById('adjustPositiveScore').value) || 0;
+	        const negAdj = parseInt(document.getElementById('adjustNegativeScore').value) || 0;
+	
+	        if (!id) {
+	            showToast('请输入学号', 'warning');
+	            return;
+	        }
+	
+	        try {
+	            const res = await fetch(`/api/students/${id}/adjust-score`, {
+	                method: 'POST',
+	                headers: { 'Content-Type': 'application/json' },
+	                body: JSON.stringify({
+	                    username: currentUser.username,
+	                    operation: currentOperation,
+	                    positive_adjust: posAdj,
+	                    negative_adjust: negAdj
+	                })
+	            });
+	            const data = await res.json();
+	            if (data.success) {
+	                showToast('调整成功');
+	                closeAllModals();
+	                await loadUserData(currentUser.username);
+	                refreshAll();
+	                addLog('INFO', 'Adjust Score', `${id} ${currentOperation} pos:${posAdj} neg:${negAdj}`);
+	            } else {
+	                showToast(data.msg, 'error');
+	            }
+	        } catch (err) {
+	            showToast('网络错误', 'error');
+	        }
+	    }
+	
+	    async function adminAddStudent() {
+	        if (!currentUser) return showToast('请先登录', 'warning');
+	        const id = document.getElementById('setStudentId').value.trim();
+	        const name = document.getElementById('setStudentName').value.trim();
+	        const pos = parseInt(document.getElementById('setStudentPos').value) || 0;
+	        const neg = parseInt(document.getElementById('setStudentNeg').value) || 0;
+	
+	        if (!id || !name) return showToast('学号姓名必填', 'warning');
+	
+	        try {
+	            const res = await fetch('/api/students', {
+	                method: 'POST',
+	                headers: { 'Content-Type': 'application/json' },
+	                body: JSON.stringify({
+	                    username: currentUser.username,
+	                    id, name,
+	                    positive_score: pos,
+	                    negative_score: neg
+	                })
+	            });
+	            const data = await res.json();
+	            if (data.success) {
+	                showToast('添加成功');
+	                await loadUserData(currentUser.username);
+	                refreshAll();
+	                addLog('INFO', 'Admin Add Student', `Added ${id} ${name} (${pos},${neg})`);
+	            } else {
+	                showToast(data.msg, 'error');
+	            }
+	        } catch (err) {
+	            showToast('网络错误', 'error');
+	        }
+	    }
+	
+	    async function adminDeleteStudent() {
+	        if (!currentUser) return showToast('请先登录', 'warning');
+	        const id = document.getElementById('adminDelId').value.trim();
+	        if (!id) return showToast('请输入学号', 'warning');
+	
+	        try {
+	            const res = await fetch(`/api/students/${id}?username=${currentUser.username}`, {
+	                method: 'DELETE'
+	            });
+	            const data = await res.json();
+	            if (data.success) {
+	                showToast('已删除');
+	                await loadUserData(currentUser.username);
+	                refreshAll();
+	                addLog('WARN', 'Admin Delete Student', `Deleted ${id}`);
+	            } else {
+	                showToast(data.msg, 'error');
+	            }
+	        } catch (err) {
+	            showToast('网络错误', 'error');
+	        }
+	    }
+	
+	    async function adminAdjustScore() {
+	        if (!currentUser) return showToast('请先登录', 'warning');
+	        const id = document.getElementById('adminAdjId').value.trim();
+	        const posAdj = parseInt(document.getElementById('adminAdjPos').value) || 0;
+	        const negAdj = parseInt(document.getElementById('adminAdjNeg').value) || 0;
+	
+	        const stu = students.find(s => s.id === id);
+	        if (!stu) return showToast('学号不存在', 'error');
+	
+	        const newPos = Math.max(0, stu.positive_score + posAdj);
+	        const newNeg = Math.max(0, stu.negative_score + negAdj);
+	
+	        try {
+	            // 先删除原学生
+	            let res = await fetch(`/api/students/${id}?username=${currentUser.username}`, {
+	                method: 'DELETE'
+	            });
+	            if (!res.ok) {
+	                const data = await res.json();
+	                showToast(data.msg || '删除失败', 'error');
+	                return;
+	            }
+	            // 再添加新学生
+	            res = await fetch('/api/students', {
+	                method: 'POST',
+	                headers: { 'Content-Type': 'application/json' },
+	                body: JSON.stringify({
+	                    username: currentUser.username,
+	                    id: stu.id,
+	                    name: stu.name,
+	                    positive_score: newPos,
+	                    negative_score: newNeg
+	                })
+	            });
+	            const data = await res.json();
+	            if (data.success) {
+	                showToast('调整成功');
+	                await loadUserData(currentUser.username);
+	                refreshAll();
+	                addLog('INFO', 'Admin Adjust Score', `${id} pos:${posAdj} neg:${negAdj} -> new(${newPos},${newNeg})`);
+	            } else {
+	                showToast(data.msg, 'error');
+	            }
+	        } catch (err) {
+	            showToast('网络错误', 'error');
+	        }
+	    }
+	
+	    // ==================== 辅助函数 ====================
+	    // 显示随机学生
+		function showRandomStudent() {
+		    if (!students || students.length === 0) {
+		        document.getElementById('randomStudentContent').innerHTML = '<p class="text-center py-4 text-gray-500">暂无学生数据</p>';
+		    } else {
+		        const randomIndex = Math.floor(Math.random() * students.length);
+		        const student = students[randomIndex];
+		        document.getElementById('randomStudentContent').innerHTML = `
+		            <div class="space-y-3">
+		                <p><span class="font-bold">姓名：</span>${student.name}</p>
+		                <p><span class="font-bold">学号：</span>${student.id}</p>
+		                <p><span class="font-bold">正分：</span>${student.positive_score}</p>
+		                <p><span class="font-bold">负分：</span>${student.negative_score}</p>
+		                <p><span class="font-bold">总分：</span>${student.total_score}</p>
+		            </div>
+		        `;
+		    }
+		    openModal('randomStudentModal');
+		}
+	    function addNote() {
+	        if (!currentUser) return showToast('请先登录', 'warning');
+	        if (checkLocked('添加注释')) return;
+	        const studentId = document.getElementById('noteStudentId').value.trim();
+	        const content = document.getElementById('noteContent').value.trim();
+	        if (!studentId || !content) {
+	            showToast('学号和内容不能为空', 'warning');
+	            return;
+	        }
+	        if (!students.find(s => s.id === studentId)) {
+	            showToast('学号不存在', 'error');
+	            return;
+	        }
+	        if (!studentNotes[studentId]) {
+	            studentNotes[studentId] = [];
+	        }
+	        // 自动编号（取最大 id + 1）
+	        const maxId = studentNotes[studentId].reduce((max, n) => Math.max(max, n.id), 0);
+	        const newId = maxId + 1;
+	        studentNotes[studentId].push({ id: newId, content });
+	        saveNotes();
+	        closeAllModals();
+	        showToast('注释添加成功');
+	        addLog('INFO', 'Add Note', `Added note for ${studentId}: ${content}`);
+	    }
+	    
+	    function deleteNote() {
+	        if (!currentUser) return showToast('请先登录', 'warning');
+	        if (checkLocked('删除注释')) return;
+	        const studentId = document.getElementById('delNoteStudentId').value.trim();
+	        const noteId = parseInt(document.getElementById('delNoteNumber').value);
+	        if (!studentId || !noteId) {
+	            showToast('学号和编号不能为空', 'warning');
+	            return;
+	        }
+	        // 检查学生是否存在
+	        if (!students.find(s => s.id === studentId)) {
+	            showToast('学生不存在', 'error');
+	            return;
+	        }
+	        if (!studentNotes[studentId]) {
+	            showToast('该学生暂无注释', 'error');
+	            return;
+	        }
+	        const index = studentNotes[studentId].findIndex(n => n.id === noteId);
+	        if (index === -1) {
+	            showToast('注释编号不存在', 'error');
+	            return;
+	        }
+	        studentNotes[studentId].splice(index, 1);
+	        saveNotes();
+	        closeAllModals();
+	        showToast('注释删除成功');
+	        addLog('WARN', 'Delete Note', `Deleted note ${noteId} for ${studentId}`);
+	    }
+	
+	    function openGenericModal(title, callback) {
+	        document.getElementById('genericModalTitle').innerText = title;
+	        const modal = document.getElementById('genericPasswordModal');
+	        modal.classList.remove('hidden');
+	        setTimeout(() => modal.classList.remove('opacity-0'), 10);
+	
+	        const confirmBtn = document.getElementById('genericConfirmBtn');
+	        const handler = (e) => {
+	            const pwd = document.getElementById('genericPassword').value;
+	            callback(pwd);
+	            document.getElementById('genericPassword').value = '';
+	            closeAllModals();
+	            confirmBtn.removeEventListener('click', handler);
+	        };
+	        confirmBtn.addEventListener('click', handler, { once: true });
+	    }
+		// 加载玩法大厅开关状态
+		async function loadPlayConfigStatus() {
+		    try {
+		        const res = await fetch('/api/play/config');
+		        const data = await res.json();
+		        const toggle = document.getElementById('playConfigToggle');
+		        if (toggle) toggle.checked = data.enabled;
+		    } catch (e) {
+		        console.error('加载玩法配置失败', e);
+		    }
+		}
+		
+		// 监听开关变化
+		document.addEventListener('DOMContentLoaded', function() {
+		    setTimeout(() => {
+		        const toggle = document.getElementById('playConfigToggle');
+		        if (toggle) {
+		            toggle.addEventListener('change', async (e) => {
+		                const enabled = e.target.checked;
+		                
+		                // 双重权限校验（前端辅助）
+		                if (!currentUser || currentUser.username !== 'ysc') {
+		                    showToast('无权限修改玩法大厅状态', 'error');
+		                    e.target.checked = !enabled;
+		                    return;
+		                }
+		
+		                try {
+		                    const res = await fetch('/api/play/config', {
+		                        method: 'POST',
+		                        headers: { 'Content-Type': 'application/json' },
+		                        body: JSON.stringify({ 
+		                            enabled: enabled,
+		                            username: currentUser.username   // 必须传递用户名
+		                        })
+		                    });
+		                    const data = await res.json();
+		                    if (data.success) {
+		                        showToast(`玩法大厅已${enabled ? '启用' : '关闭'}`, 'success');
+		                    } else {
+		                        showToast(data.msg, 'error');
+		                        e.target.checked = !enabled;
+		                    }
+		                } catch (err) {
+		                    showToast('网络错误', 'error');
+		                    e.target.checked = !enabled;
+		                }
+		            });
+		        }
+		    }, 500);
+		});
+	    function openPointsModal(type) {
+	        const modal = document.getElementById('pointsActionModal');
+	        const title = document.getElementById('pointsActionTitle');
+	        const extra = document.getElementById('extraPosNeg');
+	        const pointsGroup = document.getElementById('pointsInputGroup');
+	    
+	        title.innerText = type === 'pay' ? '支付 (从正分扣除)' : '添加积分 (正/负)';
+	        if (type === 'pay') {
+	            extra.classList.add('hidden');
+	            pointsGroup.classList.remove('hidden');
+	        } else {
+	            extra.classList.remove('hidden');
+	            pointsGroup.classList.add('hidden');
+	        }
+	    
+	        modal.classList.remove('hidden');
+	        setTimeout(() => modal.classList.remove('opacity-0'), 10);
+	
+	        // 移除旧监听，重新绑定
+	        const confirmBtn = document.getElementById('confirmPointsAction');
+	        const newHandler = async (e) => {
+	            if (!currentUser) return showToast('请先登录', 'warning');
+	            const id = document.getElementById('actionStudentId').value.trim();
+	            if (!id) { showToast('请输入学号', 'warning'); return; }
+	
+	            try {
+	                if (type === 'pay') {
+	                    const points = parseInt(document.getElementById('actionPoints').value) || 0;
+	                    if (points <= 0) return showToast('输入有效分数', 'warning');
+	                    const res = await fetch(`/api/students/${id}/adjust-score`, {
+	                        method: 'POST',
+	                        headers: { 'Content-Type': 'application/json' },
+	                        body: JSON.stringify({
+	                            username: currentUser.username,
+	                            operation: 'reduce',
+	                            positive_adjust: points,
+	                            negative_adjust: 0
+	                        })
+	                    });
+	                    const data = await res.json();
+	                    if (data.success) {
+	                        showToast('支付成功');
+	                        await loadUserData(currentUser.username);
+	                        refreshAll();
+	                        addLog('INFO', 'Payment', `${id} paid ${points} points`);
+	                    } else {
+	                        showToast(data.msg, 'error');
+	                    }
+	                } else { // add
+	                    const posAdd = parseInt(document.getElementById('actionPos').value) || 0;
+	                    const negAdd = parseInt(document.getElementById('actionNeg').value) || 0;
+	                    if (posAdd === 0 && negAdd === 0) return showToast('至少填一个', 'warning');
+	                    const res = await fetch(`/api/students/${id}/adjust-score`, {
+	                        method: 'POST',
+	                        headers: { 'Content-Type': 'application/json' },
+	                        body: JSON.stringify({
+	                            username: currentUser.username,
+	                            operation: 'add',
+	                            positive_adjust: posAdd,
+	                            negative_adjust: negAdd
+	                        })
+	                    });
+	                    const data = await res.json();
+	                    if (data.success) {
+	                        showToast('添加成功');
+	                        await loadUserData(currentUser.username);
+	                        refreshAll();
+	                        addLog('INFO', 'Add Points', `${id} +pos:${posAdd} +neg:${negAdd}`);
+	                    } else {
+	                        showToast(data.msg, 'error');
+	                    }
+	                }
+	                closeAllModals();
+	            } catch (err) {
+	                showToast('网络错误', 'error');
+	            }
+	        };
+	
+	        // 移除之前绑定的监听器（如果有），再绑定新监听器
+	        confirmBtn.replaceWith(confirmBtn.cloneNode(true));
+	        document.getElementById('confirmPointsAction').addEventListener('click', newHandler);
+	    }
+	
+	    function resetSettingsPanel() {
+	        document.getElementById('settingsPasswordWrap').classList.remove('hidden');
+	        document.getElementById('settingsContent').classList.add('hidden');
+	    }
+	
+	    function exportLogs() {
+	        const dataStr = JSON.stringify(logs, null, 2);
+	        const blob = new Blob([dataStr], { type: 'application/json' });
+	        const url = URL.createObjectURL(blob);
+	        const a = document.createElement('a');
+	        a.href = url;
+	        a.download = `logs_${Date.now()}.json`;
+	        a.click();
+	        addLog('INFO', 'Export Logs', `Exported ${logs.length} entries`);
+	    }
+	
+	    async function loadUserList() {
+	        if (!currentUser || currentUser.role !== 'admin') return;
+	    
+	        try {
+	            const res = await fetch(`/api/admin/users?adminUsername=${currentUser.username}`);
+	            const data = await res.json();
+	    
+	            if (data.success) {
+	                const tbody = document.getElementById('userListBody');
+	                tbody.innerHTML = '';
+	    
+	                data.data.forEach(u => {
+	                    const passwordMask = '●'.repeat(u.password_length || 8);
+	                    const row = document.createElement('tr');
+	                    row.className = 'border-b hover:bg-gray-50';
+	                    // 判断当前登录用户是否为 ysc
+						const isYsc = currentUser.username === 'ysc';
+						
+						row.innerHTML = `
+						    <td class="px-4 py-2">${u.username}</td>
+						    <td class="px-4 py-2">${u.created_at || '未知'}</td>
+						    <td class="px-4 py-2">${u.role}</td>
+						    <td class="px-4 py-2 font-mono">${passwordMask}</td>
+						    <td class="px-4 py-2 space-x-2">
+						        ${isYsc && u.username !== 'ysc' && u.role !== 'admin' ? `<button class="text-xs bg-green-500 text-white px-2 py-1 rounded make-admin" data-user="${u.username}">设为管理员</button>` : ''}
+						        <button class="text-xs bg-blue-500 text-white px-2 py-1 rounded reset-pwd" data-user="${u.username}">重置密码</button>
+						        ${u.username !== 'ysc' ? `<button class="text-xs bg-red-500 text-white px-2 py-1 rounded delete-user" data-user="${u.username}">删除</button>` : '<span class="text-xs text-gray-400">不可删除</span>'}
+						    </td>
+						`;
+	                    tbody.appendChild(row);
+	                });
+	    
+	                // 绑定重置密码事件
+	                document.querySelectorAll('.reset-pwd').forEach(btn => {
+	                    btn.addEventListener('click', async (e) => {
+	                        e.stopPropagation();
+	                        const targetUser = e.target.dataset.user;
+	                        if (!confirm(`确定重置用户 ${targetUser} 的密码为 123456 吗？`)) return;
+	    
+	                        try {
+	                            const res = await fetch(`/api/admin/users/${targetUser}/reset-password`, {
+	                                method: 'POST',
+	                                headers: { 'Content-Type': 'application/json' },
+	                                body: JSON.stringify({ adminUsername: currentUser.username })
+	                            });
+	                            const result = await res.json();
+	                            if (result.success) {
+	                                showToast('密码已重置为 123456');
+	                                addLog('INFO', 'Admin Reset Password', `Reset password for ${targetUser}`);
+	                                loadUserList();
+	                            } else {
+	                                showToast(result.msg, 'error');
+	                            }
+	                        } catch (err) {
+	                            showToast('网络错误', 'error');
+	                        }
+	                    });
+	                });
+	    
+	                // 绑定删除用户事件
+	                document.querySelectorAll('.delete-user').forEach(btn => {
+	                    btn.addEventListener('click', async (e) => {
+	                        e.stopPropagation();
+	                        const targetUser = e.target.dataset.user;
+	                        if (targetUser === currentUser.username) {
+	                            showToast('不能删除自己', 'warning');
+	                            return;
+	                        }
+	                        if (!confirm(`确定删除用户 ${targetUser} 吗？此操作不可恢复。`)) return;
+	    
+	                        try {
+	                            const res = await fetch(`/api/admin/users/${targetUser}?adminUsername=${currentUser.username}`, {
+	                                method: 'DELETE'
+	                            });
+	                            const result = await res.json();
+	                            if (result.success) {
+	                                showToast('用户已删除');
+	                                addLog('WARN', 'Admin Delete User', `Deleted user ${targetUser}`);
+	                                loadUserList();
+	                            } else {
+	                                showToast(result.msg, 'error');
+	                            }
+	                        } catch (err) {
+	                            showToast('网络错误', 'error');
+	                        }
+	                    });
+	                });
+	                // 设为管理员事件
+					document.querySelectorAll('.make-admin').forEach(btn => {
+					    btn.addEventListener('click', async (e) => {
+					        e.stopPropagation();
+					        const targetUser = e.target.dataset.user;
+					        if (!confirm(`确定将 ${targetUser} 设为管理员吗？`)) return;
+					        try {
+					            const res = await fetch('/api/admin/make-admin', {
+					                method: 'POST',
+					                headers: { 'Content-Type': 'application/json' },
+					                credentials: 'include',
+					                body: JSON.stringify({ adminUsername: currentUser.username, targetUser })
+					            });
+					            const result = await res.json();
+					            if (result.success) {
+					                showToast(`${targetUser} 已成为管理员`);
+					                loadUserList(); // 刷新列表
+					            } else {
+					                showToast(result.msg, 'error');
+					            }
+					        } catch (err) {
+					            showToast('网络错误', 'error');
+					        }
+					    });
+					});
+	            } else {
+	                showToast(data.msg, 'error');
+	            }
+	        } catch (err) {
+	            showToast('网络错误', 'error');
+	        }
+	    }
+	
+	    function searchStudent() {
+	        const searchId = document.getElementById('searchInput').value.trim();
+	        if (!searchId) {
+	            showToast('请输入学号', 'warning');
+	            return;
+	        }
+	
+	        const student = students.find(s => s.id === searchId);
+	        const resultContent = document.getElementById('searchResultContent');
+	
+	        if (student) {
+	            resultContent.innerHTML = `
+	                <div class="space-y-4">
+	                    <div class="flex justify-between border-b pb-2">
+	                        <span class="text-gray-600">学号：</span>
+	                        <span class="font-medium">${student.id}</span>
+	                    </div>
+	                    <div class="flex justify-between border-b pb-2">
+	                        <span class="text-gray-600">姓名：</span>
+	                        <span class="font-medium">${student.name}</span>
+	                    </div>
+	                    <div class="flex justify-between border-b pb-2">
+	                        <span class="text-gray-600">正分：</span>
+	                        <span class="text-green-600 font-medium">${student.positive_score}</span>
+	                    </div>
+	                    <div class="flex justify-between border-b pb-2">
+	                        <span class="text-gray-600">负分：</span>
+	                        <span class="text-red-600 font-medium">${student.negative_score}</span>
+	                    </div>
+	                    <div class="flex justify-between border-b pb-2">
+	                        <span class="text-gray-600 font-medium">总分：</span>
+	                        <span class="${student.total_score >= 0 ? 'text-blue-600' : 'text-red-600'} font-bold text-lg">${student.total_score}</span>
+	                    </div>
+	                </div>
+	            `;
+	            addLog('INFO', 'Search Student', `Searched ${searchId} (${student.name})`);
+	        } else {
+	            resultContent.innerHTML = `
+	                <div class="text-center py-8 text-gray-500">
+	                    <i class="fa fa-exclamation-circle text-2xl mb-2"></i>
+	                    <p>未找到学号为 ${searchId} 的学生</p>
+	                </div>
+	            `;
+	            addLog('WARN', 'Search Student', `Student ${searchId} not found`);
+	        }
+	
+	        openModal('searchResultModal');
+	    }
+		function homeSearchStudent() {
+			console.log('homeSearchStudent called, students length:', students.length); 
+		    const searchId = document.getElementById('homeSearchInput').value.trim();
+		    if (!searchId) {
+		        showToast('请输入学号', 'warning');
+		        return;
+		    }
+		    const student = students.find(s => s.id === searchId);
+		    const resultContent = document.getElementById('searchResultContent');
+		    if (student) {
+		        resultContent.innerHTML = `
+		            <div class="space-y-4">
+		                <div class="flex justify-between border-b pb-2"><span class="text-gray-600">学号：</span><span class="font-medium">${student.id}</span></div>
+		                <div class="flex justify-between border-b pb-2"><span class="text-gray-600">姓名：</span><span class="font-medium">${student.name}</span></div>
+		                <div class="flex justify-between border-b pb-2"><span class="text-gray-600">正分：</span><span class="text-green-600 font-medium">${student.positive_score}</span></div>
+		                <div class="flex justify-between border-b pb-2"><span class="text-gray-600">负分：</span><span class="text-red-600 font-medium">${student.negative_score}</span></div>
+		                <div class="flex justify-between border-b pb-2"><span class="text-gray-600 font-medium">总分：</span><span class="${student.total_score >= 0 ? 'text-blue-600' : 'text-red-600'} font-bold text-lg">${student.total_score}</span></div>
+		            </div>
+		        `;
+		        addLog('INFO', 'Search Student', `Searched ${searchId} (${student.name})`);
+		    } else {
+		        resultContent.innerHTML = `<div class="text-center py-8 text-gray-500"><i class="fa fa-exclamation-circle text-2xl mb-2"></i><p>未找到学号为 ${searchId} 的学生</p></div>`;
+		        addLog('WARN', 'Search Student', `Student ${searchId} not found`);
+		    }
+		    openModal('searchResultModal');
+		}
+	    async function verifyPassword(pwd) {
+		    if (!currentUser) return false;
+		    try {
+		        const res = await fetch('/api/verify-password', {
+		            method: 'POST',
+		            headers: { 'Content-Type': 'application/json' },
+		            body: JSON.stringify({
+		                username: currentUser.username,
+		                password: pwd
+		            })
+		        });
+		        const data = await res.json();
+		        return data.success;
+		    } catch (e) {
+		        showToast('验证失败，请检查网络', 'error');
+		        return false;
+		    }
+		}
+	
+	    // ==================== 事件监听初始化 ====================
+	    function initAllEventListeners() {
+	        // 选项卡切换
+	        document.querySelectorAll('#tabNav button').forEach(btn => {
+	            btn.addEventListener('click', function () {
+	                document.querySelectorAll('#tabNav button').forEach(b => {
+	                    b.classList.remove('tab-active');
+	                    b.classList.add('tab-inactive');
+	                });
+	                this.classList.add('tab-active');
+	                this.classList.remove('tab-inactive');
+	        
+	                document.querySelectorAll('.tab-pane').forEach(p => p.classList.add('hidden'));
+	                const target = this.dataset.tab;
+	                addLog('INFO', 'Tab Switch', `Switched to ${target}`);
+	                document.getElementById(target).classList.remove('hidden');
+	        
+	                if (target === 'log-tab') renderLogTable();
+	                if (target === 'settings-tab') resetSettingsPanel();
+	            });
+	        });
+	
+	        // 添加注释按钮
+	        // 随机学生按钮
+	        document.getElementById('randomButton').addEventListener('click', showRandomStudent);
+	        document.getElementById('addNoteBtn').addEventListener('click', () => {
+	            if (checkLocked('添加注释')) return;
+	            document.getElementById('noteStudentId').value = '';
+	            document.getElementById('noteContent').value = '';
+	            openModal('addNoteModal');
+	        });
+	
+	        document.getElementById('deleteNoteBtn').addEventListener('click', () => {
+	            if (checkLocked('删除注释')) return;
+	            document.getElementById('delNoteStudentId').value = '';
+	            document.getElementById('delNoteNumber').value = '';
+	            openModal('deleteNoteModal');
+	        });
+	
+	        // 确认添加注释
+	        document.getElementById('confirmAddNote').addEventListener('click', addNote);
+	        // 确认删除注释
+	        document.getElementById('confirmDeleteNote').addEventListener('click', deleteNote);
+	
+	        // document.getElementById('searchBtn').addEventListener('click', searchStudent);
+	        // document.getElementById('searchInput').addEventListener('keypress', function (e) {
+	            // if (e.key === 'Enter') searchStudent();
+	        // });
+	        const homeSearchBtn = document.getElementById('homeSearchBtn');
+			if (homeSearchBtn) {
+			    homeSearchBtn.addEventListener('click', homeSearchStudent);
+			} else {
+			    console.error('homeSearchBtn not found!');
+			}
+			
+			const homeSearchInput = document.getElementById('homeSearchInput');
+			if (homeSearchInput) {
+			    homeSearchInput.addEventListener('keypress', function(e) {
+			        if (e.key === 'Enter') homeSearchStudent();
+			    });
+			} else {
+			    console.error('homeSearchInput not found!');
+			}
+	
+	        // 锁定/解锁
+	        document.getElementById('unlockBtn').addEventListener('click', () => {
+	            if (!currentUser) return showToast('请先登录', 'warning');
+	            if (!isLocked) { showToast('已经是解锁状态', 'info'); return; }
+	            openGenericModal('解锁验证', (pwd) => {
+	                if (pwd.includes(classInfo.password)) {
+	                    isLocked = false;
+	                    localStorage.setItem(`locked_${currentUser.username}`, 'false');
+	                    updateLockUI();
+	                    addLog('INFO', 'Unlock', 'System unlocked');
+	                    showToast('已解锁');
+	                    closeAllModals();
+	                } else {
+	                    addLog('ERROR', 'Password Error', 'Unlock failed: incorrect password');
+	                    showToast('密码错误', 'error');
+	                }
+	            });
+	        });
+	
+	        document.getElementById('lockBtn').addEventListener('click', () => {
+	            if (!currentUser) return showToast('请先登录', 'warning');
+	            if (isLocked) return showToast('已经是锁定状态', 'info');
+	            isLocked = true;
+	            localStorage.setItem(`locked_${currentUser.username}`, 'true');
+	            updateLockUI();
+	            addLog('INFO', 'Lock', 'System locked');
+	            showToast('已锁定');
+	        });
+	
+	        // 支付/添加积分
+	        document.getElementById('payBtn').addEventListener('click', () => {
+	            addLog('INFO', 'Button Click', 'Opened payment modal');
+	            if (checkLocked('支付')) return;
+	            openPointsModal('pay');
+	        });
+	
+	        document.getElementById('addPointsBtn').addEventListener('click', () => {
+	            addLog('INFO', 'Button Click', 'Opened add points modal');
+	            if (checkLocked('添加积分')) return;
+	            openPointsModal('add');
+	        });
+	
+	        // 导出日志
+	        document.getElementById('exportLogsBtn').addEventListener('click', exportLogs);
+			document.getElementById('clearLogsBtn').addEventListener('click', () => {
+			    if (!currentUser) {
+			        showToast('请先登录', 'warning');
+			        return;
+			    }
+			    if (confirm('确定清空所有日志吗？')) {
+			        logs = [];
+			        localStorage.setItem(`logs_${currentUser.username}`, JSON.stringify(logs));
+			        renderLogTable();
+			        showToast('日志已清空');
+			        addLog('INFO', 'Clear Logs', 'All logs cleared');
+			    }
+			});
+			document.getElementById('exportDataBtn').addEventListener('click', () => {
+			    if (!currentUser) {
+			        showToast('请先登录', 'warning');
+			        return;
+			    }
+			    if (students.length === 0) {
+			        showToast('没有学生数据可导出', 'info');
+			        return;
+			    }
+			    // 构建包含学生和注释的完整数据包
+			    const exportData = {
+			        students: students,
+			        notes: studentNotes   // 注释对象
+			    };
+			    const dataStr = JSON.stringify(exportData, null, 2);
+			    const blob = new Blob([dataStr], { type: 'application/json' });
+			    const url = URL.createObjectURL(blob);
+			    const a = document.createElement('a');
+			    a.href = url;
+			    a.download = `${classInfo.className || 'students'}_${new Date().toISOString().slice(0,10)}.json`;
+			    a.click();
+			    URL.revokeObjectURL(url);
+			    addLog('INFO', 'Export Data', `Exported ${students.length} students with notes`);
+			});
+			document.getElementById('importDataBtn').addEventListener('click', () => {
+			    if (!currentUser) {
+			        showToast('请先登录', 'warning');
+			        return;
+			    }
+			    document.getElementById('importFileInput').click();
+			});
+			
+			document.getElementById('importFileInput').addEventListener('change', async function (e) {
+			    const file = e.target.files[0];
+			    if (!file) return;
+			
+			    const reader = new FileReader();
+			    reader.onload = async (event) => {
+			        try {
+			            const importedData = JSON.parse(event.target.result);
+			            let importedStudents = [];
+			            let importedNotes = {};
+			
+			            if (Array.isArray(importedData)) {
+			                importedStudents = importedData;
+			                importedNotes = {};
+			                showToast('检测到旧格式数据，注释将清空', 'info');
+			            } else if (importedData && Array.isArray(importedData.students)) {
+			                importedStudents = importedData.students;
+			                importedNotes = importedData.notes || {};
+			            } else {
+			                showToast('导入文件格式错误：应为学生数组或包含students字段的对象', 'error');
+			                return;
+			            }
+			
+			            if (importedStudents.length === 0) {
+			                showToast('文件中没有学生数据', 'warning');
+			                return;
+			            }
+			
+			            if (!confirm(`确定导入 ${importedStudents.length} 名学生？此操作将覆盖当前所有学生数据和注释。`)) {
+			                return;
+			            }
+			
+			            // 显示持久化进度 toast
+			            showToast('准备导入...', 'info', 0);
+			
+			            // 1. 删除当前所有学生（后端）
+			            const deleteTotal = students.length;
+			            let deletedCount = 0;
+			            for (const s of students) {
+			                try {
+			                    await fetch(`/api/students/${s.id}?username=${currentUser.username}`, {
+			                        method: 'DELETE'
+			                    });
+			                } catch (err) {
+			                    console.error('删除失败', s.id, err);
+			                }
+			                deletedCount++;
+			                const percent = Math.round((deletedCount / deleteTotal) * 100);
+			                showToast(`正在删除旧数据：${percent}% (${deletedCount}/${deleteTotal})`, 'info', 0);
+			            }
+			
+			            // 2. 逐个添加导入的学生
+			            const addTotal = importedStudents.length;
+			            let addedCount = 0;
+			            for (const s of importedStudents) {
+			                const student = {
+			                    id: String(s.id || s.studentId || ''),
+			                    name: s.name || '',
+			                    positive_score: s.positive_score || s.positiveScore || 0,
+			                    negative_score: s.negative_score || s.negativeScore || 0
+			                };
+			                if (!student.id || !student.name) {
+			                    console.warn('跳过无效学生数据', s);
+			                    continue;
+			                }
+			                try {
+			                    await fetch('/api/students', {
+			                        method: 'POST',
+			                        headers: { 'Content-Type': 'application/json' },
+			                        body: JSON.stringify({
+			                            username: currentUser.username,
+			                            id: student.id,
+			                            name: student.name,
+			                            positive_score: student.positive_score,
+			                            negative_score: student.negative_score
+			                        })
+			                    });
+			                } catch (err) {
+			                    console.error('添加失败', student.id, err);
+			                }
+			                addedCount++;
+			                const percent = Math.round((addedCount / addTotal) * 100);
+			                showToast(`正在导入：${percent}% (${addedCount}/${addTotal})`, 'info', 0);
+			            }
+			
+			            // 3. 恢复注释数据
+			            studentNotes = importedNotes;
+			            saveNotes();
+			
+			            // 4. 重新加载数据
+			            await loadUserData(currentUser.username);
+			            refreshAll();
+			
+			            // 关闭进度 toast
+			            closeProgressToast();
+			            showToast('导入完成！', 'success');
+			
+			            addLog('INFO', 'Import Data', `Imported ${importedStudents.length} students with notes`);
+			
+			        } catch (err) {
+			            closeProgressToast();  // 确保错误时关闭
+			            showToast('导入失败：' + err.message, 'error');
+			        }
+			    };
+			    reader.readAsText(file);
+			    e.target.value = '';
+			});
+	        // 关于按钮
+	        document.getElementById('aboutButton').addEventListener('click', () => {
+	            document.getElementById('aboutModal').classList.remove('hidden');
+	            setTimeout(() => document.getElementById('aboutModal').classList.remove('opacity-0'), 10);
+	        });
+	
+	        document.getElementById('closeAbout').addEventListener('click', () => {
+	            document.getElementById('aboutModal').classList.add('opacity-0');
+	            setTimeout(() => document.getElementById('aboutModal').classList.add('hidden'), 300);
+	        });
+	
+	        // 设置页相关
+	        document.getElementById('verifySettingsBtn').addEventListener('click', () => {
+	            const pwd = document.getElementById('settingsPasswordInput').value;
+	            if (pwd.includes(classInfo.password)) {
+	                document.getElementById('settingsPasswordWrap').classList.add('hidden');
+	                document.getElementById('settingsContent').classList.remove('hidden');
+	                document.getElementById('settingUsername').value = classInfo.username;
+	                document.getElementById('settingClassName').value = classInfo.className;
+	                document.getElementById('settingAnnouncementPreview').value = classInfo.announcement || '';
+	                addLog('INFO', 'Settings Access', 'Entered settings page');
+	        
+	                // 根据角色显示管理员面板
+	                const adminPanel = document.getElementById('adminPanel');
+	                if (currentUser && currentUser.role === 'admin') {
+	                    adminPanel.classList.remove('hidden');
+	                    loadUserList();
+	                } else {
+	                    adminPanel.classList.add('hidden');
+	                }
+	            } else {
+	                addLog('ERROR', 'Password Error', 'Settings access failed: incorrect password');
+	                showToast('密码错误', 'error');
+	            }
+	        });
+	            
+	        document.getElementById('updateAccountBtn').addEventListener('click', async () => {
+			    const newU = document.getElementById('settingUsername').value.trim();
+			    const newC = document.getElementById('settingClassName').value.trim();
+			    // 获取新密码（原注释被错误地包含了，这里分开写）
+				const newP = document.getElementById('settingNewPwd').value;
+				const conf = document.getElementById('settingConfirmPwd').value;
+			
+			    // 更新用户名和班级名（前端本地）
+			    if (newU) classInfo.username = newU;
+			    if (newC) classInfo.className = newC;
+			    // if (newAnnouncement !== undefined) classInfo.announcement = newAnnouncement; // 更新本地对象// 如果新密码不为空，则尝试修改密码
+			    if (newP || conf) {
+			        if (newP !== conf) { showToast('密码不一致', 'error'); return; }
+			        if (newP.length > 0) {
+			            try {
+			                const res = await fetch('/api/change-password', {
+			                    method: 'POST',
+			                    headers: { 'Content-Type': 'application/json' },
+			                    body: JSON.stringify({
+			                        username: currentUser.username,
+			                        old_password: classInfo.password,
+			                        new_password: newP
+			                    })
+			                });
+			                const data = await res.json();
+			                if (data.success) {
+			                    classInfo.password = newP;
+			                    localStorage.setItem(`password_${currentUser.username}`, newP);
+			                    showToast('密码修改成功');
+			                } else {
+			                    showToast(data.msg, 'error');
+			                    return;
+			                }
+			            } catch (err) {
+			                showToast('网络错误', 'error');
+			                return;
+			            }
+			        }
+			    }
+			
+			    // 更新班级信息到后端（包含公告）
+			    try {
+			        const res = await fetch('/api/class-info', {
+					    method: 'POST',
+					    headers: { 'Content-Type': 'application/json' },
+					    credentials: 'include',   // 新增
+					    body: JSON.stringify({
+					        username: currentUser.username,
+					        className: classInfo.className,
+					        announcement: classInfo.announcement
+					    })
+					});
+			        const data = await res.json();
+			        if (data.success) {
+			            localStorage.setItem(`classInfo_${currentUser.username}`, JSON.stringify(classInfo));
+			            showToast('账户信息已更新');
+			            addLog('INFO', 'Account Update', `Username:${newU}, Class:${newC}, Announcement updated`);
+			            document.getElementById('classNameDisplay').innerText = classInfo.className;
+			        } else {
+			            showToast(data.msg, 'error');
+			        }
+			    } catch (err) {
+			        showToast('网络错误', 'error');
+			    }
+			});
+	
+	        // 管理员操作（设置页）
+	        document.getElementById('adminAddStudent').addEventListener('click', adminAddStudent);
+	        document.getElementById('adminDelBtn').addEventListener('click', adminDeleteStudent);
+	        document.getElementById('adminAdjBtn').addEventListener('click', adminAdjustScore);
+	
+	        // 表单提交
+	        document.getElementById('addStudentForm').addEventListener('submit', function (e) {
+	            e.preventDefault();
+	            addStudent();
+	        });
+	
+	        document.getElementById('deleteStudentForm').addEventListener('submit', function (e) {
+	            e.preventDefault();
+	            deleteStudent();
+	        });
+	
+	        document.getElementById('passwordForm').addEventListener('submit', function (e) {
+	            e.preventDefault();
+	            verifyPasswordOld();
+	        });
+	
+	        document.getElementById('scoreAdjustForm').addEventListener('submit', function (e) {
+	            e.preventDefault();
+	            adjustScore();
+	        });
+	
+	        // 登录
+	        document.getElementById('loginSubmitBtn').addEventListener('click', async () => {
+	            const username = document.getElementById('loginUsername').value.trim();
+	            const password = document.getElementById('loginPassword').value.trim();
+	            if (!username || !password) return showToast('请输入用户名和密码', 'warning');
+	
+	            try {
+	                const res = await fetch('/api/login', {
+	                    method: 'POST',
+	                    headers: { 'Content-Type': 'application/json' },
+	                    body: JSON.stringify({ username, password })
+	                });
+	                const data = await res.json();
+	                if (data.success) {
+	                    currentUser = { 
+	                        username: data.data.username, 
+	                        role: data.data.role 
+	                    };
+	                    sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+	                    await loadUserData(username);
+	                    refreshAll();
+	                    closeAllModals();
+	                    showToast('登录成功');
+	                    addLog('INFO', 'Login', `User ${username} logged in`);
+	                } else {
+	                    showToast(data.msg, 'error');
+	                }
+	            } catch (err) {
+	                showToast('网络错误', 'error');
+	            }
+	        });
+	
+	        // 注册
+	        document.getElementById('registerSubmitBtn').addEventListener('click', async () => {
+	            const username = document.getElementById('regUsername').value.trim();
+	            const password = document.getElementById('regPassword').value.trim();
+	            if (!username || !password) return showToast('用户名和密码不能为空', 'warning');
+	
+	            try {
+	                const res = await fetch('/api/register', {
+	                    method: 'POST',
+	                    headers: { 'Content-Type': 'application/json' },
+	                    body: JSON.stringify({ username, password })
+	                });
+	                const data = await res.json();
+	                if (data.success) {
+	                    const defaultClass = { className: '🏫 银河一班', username, password };
+	                    localStorage.setItem(`classInfo_${username}`, JSON.stringify(defaultClass));
+	                    localStorage.setItem(`password_${username}`, password);
+	                    localStorage.setItem(`locked_${username}`, 'true');
+	                    showToast('注册成功，请登录');
+	                    closeAllModals();
+	                    openModal('loginModal');
+	                } else {
+	                    showToast(data.msg, 'error');
+	                }
+	            } catch (err) {
+	                showToast('网络错误', 'error');
+	            }
+	        });
+	
+	        // 退出登录
+	        document.getElementById('logoutBtn').addEventListener('click', () => {
+	            if (confirm('确定要退出登录吗？')) {
+	                currentUser = null;
+	                sessionStorage.removeItem('currentUser');
+	                students = [];
+	                refreshAll();
+	                showToast('已退出登录');
+	                addLog('INFO', 'Logout', 'User logged out');
+	            }
+	        });
+	
+	        // 通用关闭模态框
+	        document.querySelectorAll('.close-modal').forEach(btn => {
+	            btn.addEventListener('click', closeAllModals);
+	        });
+	
+	        document.querySelectorAll('.modal-backdrop').forEach(modal => {
+	            modal.addEventListener('click', function (e) {
+	                if (e.target === this) closeAllModals();
+	            });
+	        });
+	
+	        // 打开登录/注册模态框
+	        document.getElementById('loginBtn').addEventListener('click', () => openModal('loginModal'));
+	        document.getElementById('registerBtn').addEventListener('click', () => openModal('registerModal'));
+	        document.getElementById('clearAllScoresBtn').addEventListener('click', () => {
+			    if (!currentUser) {
+			        showToast('请先登录', 'warning');
+			        return;
+			    }
+			    openGenericModal('清除所有学生积分 - 输入当前账号密码', async (pwd) => {
+			        if (!confirm('此操作将把所有学生的正分、负分、总分重置为0，但等级保持不变。是否继续？')) {
+			            return;
+			        }
+			        try {
+			            const res = await fetch('/api/admin/clear-all-scores', {
+			                method: 'POST',
+			                headers: { 'Content-Type': 'application/json' },
+			                credentials: 'include',
+			                body: JSON.stringify({
+			                    username: currentUser.username,
+			                    password: pwd
+			                })
+			            });
+			            const data = await res.json();
+			            if (data.success) {
+			                showToast('积分已清零');
+			                await loadUserData(currentUser.username);
+			                refreshAll();
+			            } else {
+			                showToast(data.msg, 'error');
+			            }
+			        } catch (err) {
+			            showToast('网络错误', 'error');
+			        }
+			    });
+			});
+			// 右下角 📢 按钮：只读模式
+			document.getElementById('globalAnnouncementBtn').addEventListener('click', () => {
+			    globalAnnouncementMode = 'view';
+			    loadGlobalAnnouncement().then(() => {
+			        setupGlobalAnnouncementModal('view');
+			        openModal('globalAnnouncementModal');
+			    });
+			});
+			
+			// 设置页中的“编辑全局公告”按钮：编辑模式
+			document.getElementById('editGlobalAnnouncementFromSettings').addEventListener('click', () => {
+			    globalAnnouncementMode = 'edit';
+			    loadGlobalAnnouncement().then(() => {
+			        setupGlobalAnnouncementModal('edit');
+			        openModal('globalAnnouncementModal');
+			        // 自动进入编辑状态（如果有权限）
+			        if (currentUser && (currentUser.username === 'ysc' || currentUser.role === 'admin')) {
+			            setTimeout(() => {
+			                const editBtn = document.getElementById('editGlobalAnnouncementBtn');
+			                if (editBtn && !editBtn.classList.contains('hidden')) {
+			                    editBtn.click();
+			                }
+			            }, 300);
+			        }
+			    });
+			});
+			// 功能区按钮
+			document.getElementById('goToPlayModeBtn')?.addEventListener('click', () => {
+				if (!currentUser) {
+					showToast('请先登录', 'warning');
+					return;
+				}
+				// 将当前用户信息存入 sessionStorage 供新页面读取
+				sessionStorage.setItem('playCurrentUser', JSON.stringify(currentUser));
+				window.location.href = '/play/';
+			});
+
+			document.getElementById('goToJiezhiSpaceBtn')?.addEventListener('click', () => {
+				window.open('https://jiezhiyisichen.pages.dev', '_blank');
+			});
+	    }
+	
+	    // ==================== 登录状态检查 ====================
+	    async function checkLoginStatus() {
+	        const savedUser = sessionStorage.getItem('currentUser');
+	        if (savedUser) {
+	            const parsed = JSON.parse(savedUser);
+	            currentUser = parsed;
+	            await loadUserData(currentUser.username);
+	            refreshAll();
+	            showToast(`欢迎回来，${currentUser.username}`);
+	        } else {
+	            currentUser = null;
+	            students = [];
+	            refreshAll();
+	        }
+	    }
+	
+	    // ==================== 启动 ====================
+	    document.addEventListener('DOMContentLoaded', async function () {
+	        await checkLoginStatus();
+	        initAllEventListeners();
+	    });
+	</script>
+</body>
+</html>
