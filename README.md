@@ -1,105 +1,159 @@
-# 班级积分管理系统（Web版）
 
-## 项目简介
-班级积分管理系统是一款基于Web技术开发的班级积分管理应用，专为中小学教师设计，用于管理班级学生的积分情况。系统采用Flask轻量级Web框架开发，支持学生信息管理、多维度积分排名展示、积分查询和调整等功能，所有数据均存储在本地JSON文件中，无需数据库支持。
+---
 
-## 功能特点
+## `README.md` (English)
 
-### 1. 学生信息管理
-- 添加学生：录入姓名、学号、初始正/负分
-- 删除学生：通过学号定位删除
-- 学生信息实时更新和保存
+```markdown
+# Class Points Management System
 
-### 2. 积分查询与调整
-- 学号快速查询学生积分信息
-- 积分充值：增加学生的正分或负分
-- 积分扣除：减少学生的正分或负分
-- 所有积分调整操作需要密码验证（默认密码：54321）
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/downloads/)
+[![Flask](https://img.shields.io/badge/Flask-3.0.0-green)](https://flask.palletsprojects.com/)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
-### 3. 多维度积分排名
-- 总排名：按总分从高到低排序
-- 正分排名：按正分从高到低排序
-- 负分榜：按负分从高到低排序
-- 全部学生信息：按学号顺序展示所有学生
+> A web-based class points management system designed for primary/secondary school teachers, supporting multi‑user isolation, visual rankings, a level system based on accumulated positive points, data import/export, and full operation logs.
 
-### 4. 数据可视化
-- 积分分布图表：直观展示学生积分情况
-- 班级积分统计：显示学生总数、正分学生数、负分学生数和平均总分
+👉 [中文版本](README-zh.md)
 
-### 5. 界面设计
-- 响应式设计：适配不同屏幕尺寸，包括4K高分辨率显示器
-- 现代化UI：采用卡片式布局，视觉效果简洁清爽
-- 流畅的交互动画：包括按钮悬停效果、模态框过渡动画等
+## ✨ Features
 
-## 技术实现
-- 后端：Python 3.8+, Flask 3.0.0
-- 前端：HTML5, CSS3, JavaScript, Tailwind CSS v3
-- 图标库：Font Awesome
-- 图表库：Chart.js
-- 数据存储：JSON文件
+### 👥 User System
+- User registration & login – each teacher manages their own class data.
+- Role system: ordinary users and administrators (admin panel for user management).
 
-## 安装说明
+### 🧑‍🎓 Student Management
+- Add, edit, delete students (name, student ID, positive/negative points).
+- Comments per student – add or delete notes freely.
+- Data import/export (JSON format, keeps all comments).
 
-### 1. 安装Python
-确保已安装Python 3.8或更高版本。
+### 🎯 Points & Level System
+- **Points adjustment**: increase positive or negative points, pay (deduct positive points).
+- **Level system** – based on `accrued_exp` (total positive points ever earned).
+  - Gains 1 level per 10 positive points (remaining after reset operations).
+  - Reset (clear points) does not affect the accumulated experience or level.
 
-### 2. 安装依赖
-```bash
-pip install -r requirements.txt
-```
+### 📊 Ranking & Visualization
+- Multi‑dimension rankings: total points, positive points, negative points, and by student ID.
+- Medal icons for top 3 students in total points.
+- Points distribution bar chart (scrollable, shows 5 students at a time).
+- Class statistics: student count, number with positive/negative points, average total points.
 
-### 3. 运行程序
-```bash
-python app.py
-```
+### 📢 Announcements
+- **Global announcement** (admin‑editable Markdown, displayed via a floating button).
+- **Class announcement** (Markdown support, editable per class).
 
-### 4. 访问系统
-打开浏览器，访问 `http://localhost:5000`
+### 📝 Logging & Safety
+- Full operation log – records all point changes and student modifications.
+- Export / clear logs.
+- Lock/unlock mechanism to prevent accidental operations.
 
-## 内网穿透配置（可选）
+### 🎲 Extras
+- Random student picker.
+- Responsive design – adapts to 4K monitors as well as mobile devices.
 
-如果需要通过内网穿透让其他设备访问系统，可以使用工具如ngrok、frp等。以下是使用ngrok的简单步骤：
+## 🛠️ Tech Stack
 
-1. 下载并安装ngrok（https://ngrok.com/download）
-2. 注册ngrok账号并获取认证令牌
-3. 运行以下命令启动内网穿透：
+| Backend | Frontend | Data Storage |
+|---------|----------|---------------|
+| Python 3.8+<br>Flask 3.0.0 | HTML5 / CSS3 / JavaScript<br>Tailwind CSS<br>Chart.js<br>Font Awesome | JSON files (no database required) |
+
+## 📦 Installation
+
+### Prerequisites
+- Python 3.8 or higher
+- pip (Python package manager)
+
+### Steps
+1. **Clone the repository**  
    ```bash
-   ngrok http 5000
+   git clone https://github.com/yourusername/class-points-system.git
+   cd class-points-system
    ```
-4. ngrok会生成一个公网URL，通过该URL可以访问你的系统
 
-## 使用说明
+2. **Install dependencies**  
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### 基本操作
-1. **添加学生**：点击"添加学生"按钮，填写学生信息后点击"添加"
-2. **删除学生**：点击"删除学生"按钮，输入学号后点击"删除"
-3. **查询学生**：在查询框中输入学号，点击"查询"按钮
-4. **积分充值**：点击"积分充值"按钮，输入密码（默认：54321），然后输入学号和要充值的分数
-5. **积分扣除**：点击"积分扣除"按钮，输入密码（默认：54321），然后输入学号和要扣除的分数
+   *Sample `requirements.txt`:*
+   ```
+   Flask==3.0.0
+   ```
 
-### 数据存储
-- 学生数据存储在程序目录下的`data/students.json`文件中
-- 每次操作后数据会自动保存，程序关闭后数据不会丢失
-- 如需备份数据，请复制`data/students.json`文件
+3. **Run the application**  
+   ```bash
+   python app.py
+   ```
 
-## 注意事项
-1. 默认操作密码为：54321
-2. 请确保程序有足够的权限读写数据文件
-3. 程序默认在5000端口运行，可以在`app.py`中修改端口号
-4. 使用内网穿透时，请确保网络安全，避免敏感信息泄露
+4. **Access the system**  
+   Open your browser and go to `http://localhost:5000`
 
-## 功能亮点
-1. **响应式设计**：完美适配4K分辨率显示器，同时支持其他分辨率
-2. **数据可视化**：使用Chart.js实现积分分布图表，直观展示班级积分情况
-3. **流畅动画**：添加了按钮悬停、模态框过渡等动画效果，提升用户体验
-4. **本地数据存储**：数据存储在本地JSON文件中，无需数据库支持
-5. **完整的操作反馈**：所有操作都有即时的视觉反馈，包括Toast提示和状态变化
+### (Optional) Intranet Penetration
+Use tools like `ngrok` or `frp` to expose your local server:
+```bash
+ngrok http 5000
+```
 
-## 更新日志
-- v1.0.0 (2025-07-21)：
-  - 初始版本发布
-  - 实现学生信息管理功能
-  - 实现积分查询与调整功能
-  - 实现多维度积分排名展示
-  - 添加数据可视化图表
-  - 支持响应式设计
+## 🚀 Usage Guide
+
+### First Time?
+- Register a new account – the first registered user is an **ordinary user**.
+- To obtain administrator rights, please refer to the code (admin rights can be granted via the admin panel by an existing admin).  
+  A default super administrator `ysc` exists in the system (password: `admin123` – **change it after first login**).
+
+### Core Operations
+| Action | Description |
+|--------|-------------|
+| **Add Student** | Fill in name, ID, initial points |
+| **Adjust Points** | Increase positive/negative points or pay (deduct positive) – automatically updates level |
+| **Rankings** | Click tabs to view total, positive, negative, or ID‑sorted lists |
+| **Comments** | Click the comment icon next to a student to add/delete notes |
+| **Announcements** | Use the floating button (bottom right) to view the global announcement; class announcement is edited in the settings panel |
+| **Import/Export** | Export all students + comments as JSON, or import a previously exported file |
+| **Logs** | View, export, or clear operation logs in the Logs panel |
+| **Lock/Unlock** | Prevent accidental modifications when the system is displayed on a public screen |
+
+## 📁 Data Storage
+- All data is stored in the `data/` folder as JSON files:
+  - `students.json` – student list and points
+  - `users.json` – user credentials and roles
+  - `logs.json` – operation logs
+  - `config.json` – system settings (announcements, lock state, etc.)
+- Back up the entire `data/` folder to preserve all information.
+
+## 🔧 Configuration
+- Default server port: `5000` – change in `app.py`
+- Operation passwords are **no longer needed** – authentication is handled by login sessions
+- The level system threshold (10 positive points per level) can be adjusted in the source code
+
+## 📸 Screenshots
+*You can add screenshots here – for example:*
+
+| Dashboard | Rankings | Charts |
+|-----------|----------|--------|
+| ![dashboard](screenshots/dashboard.png) | ![rankings](screenshots/rankings.png) | ![chart](screenshots/chart.png) |
+
+## 🗺️ Roadmap / Future plans
+- [ ] CSV import/export
+- [ ] Customizable level formulas
+- [ ] Student self‑service portal (view own points)
+- [ ] Docker support
+
+## 🤝 Contributing
+Issues and pull requests are welcome!  
+For major changes, please open an issue first to discuss what you would like to change.
+
+## 📄 License
+[MIT](LICENSE) © Class Points Team
+
+## 🙏 Acknowledgements
+- [Flask](https://flask.palletsprojects.com/)
+- [Tailwind CSS](https://tailwindcss.com/)
+- [Chart.js](https://www.chartjs.org/)
+- [Font Awesome](https://fontawesome.com/)
+- [Marked.js](https://marked.js.org/)
+
+---
+
+**Enjoy managing your class points!** ⭐
+```
+
