@@ -118,12 +118,6 @@ ngrok http 5000
 - Operation passwords are **no longer needed** – authentication is handled by login sessions
 - The level system threshold (10 positive points per level) can be adjusted in the source code
 
-## 📸 Screenshots
-*You can add screenshots here – for example:*
-
-| Dashboard | Rankings | Charts |
-|-----------|----------|--------|
-| ![dashboard](screenshots/dashboard.png) | ![rankings](screenshots/rankings.png) | ![chart](screenshots/chart.png) |
 
 ## 🗺️ Roadmap / Future plans
 - [ ] CSV import/export
