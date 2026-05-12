@@ -1,9 +1,8 @@
 
 ---
 
-## `README-zh.md` (Chinese)
+**README-zh.md** (Chinese)
 
-```markdown
 # 班级积分管理系统（Web版）
 
 [![Python 版本](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/downloads/)
@@ -156,14 +155,3 @@ ngrok http 5000
 
 **开始轻松管理班级积分吧！** ⭐
 ```
-
----
-
-两个文档均已包含：
-- 项目简介、徽章、语言跳转链接
-- 主要功能（突出等级系统、多用户、数据隔离等最新特性）
-- 技术栈、安装步骤、使用指南
-- 数据存储、配置说明、可选内网穿透
-- 截图占位、未来计划、贡献与许可证
-
-你可以根据实际仓库情况修改 `git clone` 地址、截图路径及默认超级管理员密码等细节。
