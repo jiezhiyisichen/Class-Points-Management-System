@@ -1,8 +1,3 @@
-
-
-## `README.md` (English)
-
-```markdown
 # Class Points Management System
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/downloads/)
@@ -67,7 +62,6 @@
    git clone https://github.com/yourusername/class-points-system.git
    cd class-points-system
    ```
-
 2. **Install dependencies**  
    ```bash
    pip install -r requirements.txt
